@@ -1,3 +1,4 @@
+//server.js
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -54,7 +55,9 @@ fs.readFile(path.join(__dirname, 'inventorydb.products.json'), 'utf-8', async (e
       
           if (!existingProduct) {
               // 如果不存在，則建立新的產品資料
-              const newProduct = new Product({
+              const NewProductModel = mongoose.model('2024年11月_新店京站');
+              const newProduct = new NewProductModel({
+
                   _id: id,
                   商品編號: product.商品編號,
                   商品名稱: product.商品名稱,
@@ -112,7 +115,7 @@ app.get('/archive/originaldata', (req, res) => {
 // API 端點獲取產品數據
 app.get('/api/products', async (req, res) => {
   try {
-      const products = await Product.find();
+      const products = await mongoose.model('2024年11月_新店京站').find();
       res.json(products);
   } catch (error) {
       console.error("獲取產品時出錯:", error);
@@ -182,7 +185,8 @@ app.post('/api/products', async (req, res) => {
   }
 
   try {
-      const newProduct = new Product({
+      const NewProductModel = mongoose.model('2024年11月_新店京站');
+      const newProduct = new NewProductModel({
           商品編號,
           商品名稱,
           規格: 規格 || '',
@@ -219,7 +223,7 @@ app.post('/api/archive', async (req, res) => {
 
     try {
         // 獲取當前的庫存數據
-        const products = await Product.find();
+        const products = await mongoose.model('2024年11月_新店京站').find();
 
         // 將數據保存到文件中
         const filePath = path.join(__dirname, 'archive', `${year}年${month}月盤`);
