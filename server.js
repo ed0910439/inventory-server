@@ -35,7 +35,7 @@ const productSchema = new mongoose.Schema({
 
 });
 
-const Product = mongoose.model('Product', productSchema);
+const Product = mongoose.model('2024年11月_新店京站', productSchema);
 
 // 從 JSON 文件中加載數據到資料庫
 fs.readFile(path.join(__dirname, 'inventorydb.products.json'), 'utf-8', async (err, data) => {
