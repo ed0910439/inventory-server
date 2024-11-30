@@ -9,7 +9,6 @@ const { Server } = require('socket.io');
 const ExcelJS = require('exceljs'); // 確保這行代碼在文件的頂部
 
 const multer = require('multer'); // 導入 multer 中間件
-const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
 
 // 初始化 Express 應用
 const app = express();
@@ -29,7 +28,7 @@ const productSchema = new mongoose.Schema({
   規格: { type: String, required: false },
   數量: { type: Number, required: true },
   單位: { type: String, required: true },
-  到期日: { type: String },
+  到期日: { type: Date },
   廠商: { type: String, required: false },
   溫層: { type: String, required: false },
   盤點日期: { type: String, required: false },
@@ -66,9 +65,9 @@ fs.readFile(path.join(__dirname, 'inventorydb.products.json'), 'utf-8', async (e
                   數量: product.數量 || 0,
                   單位: product.單位,
                   到期日: expiryDate,
-		          廠商: product.廠商 || '',
-		          溫層: product.溫層 || '',
-		          盤點日期: product.盤點日期 || '',
+		  廠商: product.廠商 || '',
+		  溫層: product.溫層 || '',
+		  盤點日期: product.盤點日期 || '',
 
               });
               return newProduct.save(); // 保存到資料庫
@@ -133,7 +132,7 @@ app.put('/api/products/:productCode/quantity', async (req, res) => {
       // 更新指定產品的数量
       const updatedProduct = await Product.findOneAndUpdate(
           { 商品編號: productCode },
-          { 數量: { $eq: 數量 } },
+          { 數量 },
           { new: true }
       );
 
@@ -193,7 +192,7 @@ app.post('/api/products', async (req, res) => {
           規格: 規格 || '',
           數量: 數量 || 0,
           單位,
-          到期日: 到期日 ? new Date(到期日) : '',
+          到期日: 到期日 ? new Date(到期日) : null,
 		  廠商: product.廠商 || '',
 		  溫層: product.溫層 || '',
 		  盤點日期: product.盤點日期 || '',
@@ -208,14 +207,8 @@ app.post('/api/products', async (req, res) => {
       res.status(400).send('新增產品失敗');
   }
 });
-// 設定 rate limiter: 每分鐘最多 5 次請求
-const archiveLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 5, // limit each IP to 5 requests per windowMs
-});
-
 // API 端點處理盤點歸檔請求
-app.post('/api/archive', archiveLimiter, async (req, res) => {
+app.post('/api/archive', async (req, res) => {
     const { year, month, password } = req.body;
 
     // 輸入驗證
@@ -233,11 +226,7 @@ app.post('/api/archive', archiveLimiter, async (req, res) => {
         const products = await mongoose.model('2024年11月_新店京站').find();
 
         // 將數據保存到文件中
-        const archiveDir = path.join(__dirname, 'archive');
-        const filePath = path.resolve(archiveDir, `${year}年${month}月盤`);
-        if (!filePath.startsWith(archiveDir)) {
-            return res.status(403).send('無效的文件路徑');
-        }
+        const filePath = path.join(__dirname, 'archive', `${year}年${month}月盤`);
         fs.writeFileSync(filePath, JSON.stringify(products, null, 2), 'utf-8');
 
         // 將數據從資料庫中清除
@@ -293,7 +282,7 @@ app.post('/api/startInventory', upload.fields([{ name: 'inventoryTemplate', maxC
                     單位: row.getCell(4).value,
                     廠商: row.getCell(5).value,
                     盤點日期: row.getCell(6).value,
-                    到期日: row.getCell(7).value ? new Date(row.getCell(7).value) : '', // 將到期日轉換為 Date 物件
+                    到期日: row.getCell(7).value ? new Date(row.getCell(7).value) : null, // 將到期日轉換為 Date 物件
                     溫層: row.getCell(8).value,
                     數量: row.getCell(9).value,
                 };
