@@ -132,7 +132,7 @@ app.put('/api/products/:productCode/quantity', async (req, res) => {
       // 更新指定產品的数量
       const updatedProduct = await Product.findOneAndUpdate(
           { 商品編號: productCode },
-          { 數量 },
+          { 數量: { $eq: 數量 } },
           { new: true }
       );
 
