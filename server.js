@@ -28,7 +28,7 @@ const productSchema = new mongoose.Schema({
   規格: { type: String, required: false },
   數量: { type: Number, required: true },
   單位: { type: String, required: true },
-  到期日: { type: Date },
+  到期日: { type: String },
   廠商: { type: String, required: false },
   溫層: { type: String, required: false },
   盤點日期: { type: String, required: false },
@@ -65,9 +65,9 @@ fs.readFile(path.join(__dirname, 'inventorydb.products.json'), 'utf-8', async (e
                   數量: product.數量 || 0,
                   單位: product.單位,
                   到期日: expiryDate,
-				  廠商: product.廠商 || '',
-				  溫層: product.溫層 || '',
-				  盤點日期: product.盤點日期 || '',
+		          廠商: product.廠商 || '',
+		          溫層: product.溫層 || '',
+		          盤點日期: product.盤點日期 || '',
 
               });
               return newProduct.save(); // 保存到資料庫
@@ -192,7 +192,7 @@ app.post('/api/products', async (req, res) => {
           規格: 規格 || '',
           數量: 數量 || 0,
           單位,
-          到期日: 到期日 ? new Date(到期日) : null,
+          到期日: 到期日 ? new Date(到期日) : '',
 		  廠商: product.廠商 || '',
 		  溫層: product.溫層 || '',
 		  盤點日期: product.盤點日期 || '',
@@ -282,7 +282,7 @@ app.post('/api/startInventory', upload.fields([{ name: 'inventoryTemplate', maxC
                     單位: row.getCell(4).value,
                     廠商: row.getCell(5).value,
                     盤點日期: row.getCell(6).value,
-                    到期日: row.getCell(7).value ? new Date(row.getCell(7).value) : null, // 將到期日轉換為 Date 物件
+                    到期日: row.getCell(7).value ? new Date(row.getCell(7).value) : '', // 將到期日轉換為 Date 物件
                     溫層: row.getCell(8).value,
                     數量: row.getCell(9).value,
                 };
@@ -317,7 +317,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*', // 確保允許来自特定源的請求
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
   },
 });
 
