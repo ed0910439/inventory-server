@@ -7,7 +7,7 @@ const path = require('path');
 const http = require('http');
 const { Server } = require('socket.io');
 const ExcelJS = require('exceljs'); // 確保這行代碼在文件的頂部
-
+const RateLimit = require('express-rate-limit');
 const multer = require('multer'); // 導入 multer 中間件
 
 // 初始化 Express 應用
@@ -207,8 +207,14 @@ app.post('/api/products', async (req, res) => {
       res.status(400).send('新增產品失敗');
   }
 });
+// 設定 rate limiter: 每 15 分鐘最多 100 個請求
+const archiveLimiter = RateLimit({
+    windowMs: 15 * 60 * 1000, // 15 分鐘
+    max: 100, // 每個 windowMs 最多 100 個請求
+});
+
 // API 端點處理盤點歸檔請求
-app.post('/api/archive', async (req, res) => {
+app.post('/api/archive', archiveLimiter, async (req, res) => {
     const { year, month, password } = req.body;
 
     // 輸入驗證
