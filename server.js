@@ -226,7 +226,11 @@ app.post('/api/archive', async (req, res) => {
         const products = await mongoose.model('2024年11月_新店京站').find();
 
         // 將數據保存到文件中
-        const filePath = path.join(__dirname, 'archive', `${year}年${month}月盤`);
+        const archiveDir = path.join(__dirname, 'archive');
+        const filePath = path.resolve(archiveDir, `${year}年${month}月盤`);
+        if (!filePath.startsWith(archiveDir)) {
+            return res.status(403).send('無效的文件路徑');
+        }
         fs.writeFileSync(filePath, JSON.stringify(products, null, 2), 'utf-8');
 
         // 將數據從資料庫中清除
