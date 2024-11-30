@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const ExcelJS = require('exceljs'); // 確保這行代碼在文件的頂部
 
 const multer = require('multer'); // 導入 multer 中間件
+const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
 
 // 初始化 Express 應用
 const app = express();
@@ -132,7 +133,7 @@ app.put('/api/products/:productCode/quantity', async (req, res) => {
       // 更新指定產品的数量
       const updatedProduct = await Product.findOneAndUpdate(
           { 商品編號: productCode },
-          { 數量 },
+          { 數量: { $eq: 數量 } },
           { new: true }
       );
 
@@ -207,8 +208,14 @@ app.post('/api/products', async (req, res) => {
       res.status(400).send('新增產品失敗');
   }
 });
+// 設定 rate limiter: 每分鐘最多 5 次請求
+const archiveLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 5, // limit each IP to 5 requests per windowMs
+});
+
 // API 端點處理盤點歸檔請求
-app.post('/api/archive', async (req, res) => {
+app.post('/api/archive', archiveLimiter, async (req, res) => {
     const { year, month, password } = req.body;
 
     // 輸入驗證
@@ -226,7 +233,11 @@ app.post('/api/archive', async (req, res) => {
         const products = await mongoose.model('2024年11月_新店京站').find();
 
         // 將數據保存到文件中
-        const filePath = path.join(__dirname, 'archive', `${year}年${month}月盤`);
+        const archiveDir = path.join(__dirname, 'archive');
+        const filePath = path.resolve(archiveDir, `${year}年${month}月盤`);
+        if (!filePath.startsWith(archiveDir)) {
+            return res.status(403).send('無效的文件路徑');
+        }
         fs.writeFileSync(filePath, JSON.stringify(products, null, 2), 'utf-8');
 
         // 將數據從資料庫中清除
