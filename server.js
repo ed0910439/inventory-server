@@ -64,7 +64,7 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
 
     try {
         if (storeName === 'notStart'){
-            res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
+            res.status(204).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
         } else {
 
             const today = `${year}-${month}-${day}`;
