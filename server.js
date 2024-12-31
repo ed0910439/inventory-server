@@ -19,8 +19,10 @@ const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit �
 // 初始化 Express 應用
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); // 解析 application/json
+app.use(express.urlencoded({ extended: true })); 
 app.use(bodyParser.json());
+
 
 // 連接到 MongoDB
 require('dotenv').config(); // 載入 .env 文件
@@ -34,8 +36,8 @@ const productSchema = new mongoose.Schema({
     商品編號: { type: String, required: true },
     商品名稱: { type: String, required: false },
     規格: { type: String, required: false },
-    數量: { type: String, required: false },
-    單位: { type: String, required: true },
+    數量: { type: Number , rquired: false },
+    單位: { type: String, required: false },
     到期日: { type: String, required: false },
     廠商: { type: String, required: false },
     庫別: { type: String, required: false }, // 更正名稱為庫別
@@ -274,27 +276,17 @@ app.get('/api/version', (req, res) => {
   });
 });
 
-const initialStockFilePath = path.join(__dirname, 'archive', '2024_09.json');
 
-// API端點: 獲取期初庫存數據
-app.get('/archive/originaldata', (req, res) => {
-  fs.readFile(initialStockFilePath, 'utf8', (err, data) => {
-    if (err) {
-      console.error("讀取文件時出錯:", err);
-      return res.status(500).json({ message: '伺服器錯誤' });
-    }
-    res.json(JSON.parse(data)); // 返回JSON數據
-  });
-});
-
-
+app.get(`/api/products`, async (req, res) => {
+    return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
+    });
 
 // 獲取產品數據的 API
 app.get(`/api/products/:storeName`, async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
 
     try {
-        if (storeName === 'notStart') {
+        if (storeName === '') {
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
         } else {
 
@@ -304,7 +296,7 @@ app.get(`/api/products/:storeName`, async (req, res) => {
 
             // 返回產品數據
             res.json(products);
-            res.status(200); // 使用 400 Bad Request 返回错误，因为请求参数有误
+            res.status(200); 
 
         }
     } catch (error) {
@@ -315,12 +307,16 @@ app.get(`/api/products/:storeName`, async (req, res) => {
 });
 // 更新產品数量的 API 端點
 app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
+        const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
 
+    try {
+        if (storeName === 'notStart') {
+            res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
+        } else {
 
-    const storeName = req.params.storeName; // 獲取 URL 中的 storeName
-    const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
-
-  try {
+            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const Product = mongoose.model(collectionName, productSchema);
+            const products = await Product.find(); // 獲取產品數據
       const { productCode } = req.params;
       const { 數量 } = req.body;
 
@@ -335,10 +331,10 @@ app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
           return res.status(404).send('產品未找到');
       }
       // 廣播更新消息给所有用戶
-      io.emit('productUpdated', updatedProduct);
+    io.to(storeName).emit('productUpdated', updatedProduct);
 
       res.json(updatedProduct);
-  } catch (error) {
+  }} catch (error) {
       console.error('更新產品時出錯:', error);
       res.status(400).send('更新失敗');
   }
@@ -346,7 +342,16 @@ app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => {
-  try {
+        const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+
+    try {
+        if (storeName === 'notStart') {
+            res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
+        } else {
+
+            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const Product = mongoose.model(collectionName, productSchema);
+            const products = await Product.find(); // 獲取產品數據
       const { productCode } = req.params;
       const { 到期日 } = req.body;
 
@@ -361,10 +366,10 @@ app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => 
           return res.status(404).send('產品未找到');
       }
       // 廣播更新消息给所有用戶
-      io.emit('productUpdated', updatedProduct);
+      io.to(storeName).emit('productUpdated', updatedProduct);
       
       res.json(updatedProduct);
-  } catch (error) {
+  }} catch (error) {
       console.error('更新到期日時出錯:', error);
       res.status(400).send('更新失敗');
   }
@@ -377,27 +382,27 @@ const archiveLimiter = rateLimit({
     max: 5, // limit each IP to 5 requests per windowMs
 });
 
+
+
+
 // API 端點處理盤點歸檔請求
 app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
-    const { year, month, password } = req.body;
-
-    // 輸入驗證
-    if (!year || !month || !password) {
-        return res.status(400).send('年份、月份和密碼是必需的');
-    }
-
-    const adminPassword = process.env.PASSWORD; // 
-    if (password !== adminPassword) {
-        return res.status(403).send('管理員密碼錯誤');
-    }
-
     try {
-        // 獲取當前的庫存數據
-        const products = await mongoose.model(collectionName).find();
+        const storeName = req.params.storeName;
+        const password = req.body.password;
+        const adminPassword = process.env.PASSWORD; //           
 
-        // 將數據保存到文件中
+    if (password !== adminPassword) {
+        return res.status(401).json({ message: '密碼不正確' });
+            }else{
+
+        const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+        const Product = mongoose.model(collectionName, productSchema);
+        const products = await Product.find(); // 獲取產品數據
+
+            // 將數據保存到文件中
         const archiveDir = path.join(__dirname, 'archive');
-        const filePath = path.resolve(archiveDir, `${year}年${month}月盤`);
+        const filePath = path.resolve(archiveDir, collectionName);
         if (!filePath.startsWith(archiveDir)) {
             return res.status(403).send('無效的文件路徑');
         }
@@ -408,11 +413,13 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
 
         res.status(200).send('數據歸檔成功');
 
-    } catch (error) {
+    }} catch (error) {
         console.error('處理歸檔請求時出錯:', error);
-        res.status(500).send('伺服器錯誤');
+        // 避免重复发送响应
+        if (!res.headersSent) {
+            res.status(500).send('伺服器錯誤');
+        }
     }
-
 });
 
 
@@ -429,20 +436,23 @@ const io = new Server(server, {
 
 // Socket.IO 連接管理
 let onlineUsers = 0;  // 計數線上人數
-
 io.on('connection', (socket) => {
-  onlineUsers++;
-  console.log('使用者上線。 線上人數：' + onlineUsers + '人');
-  
-  // 發送當前線上人數給所有用戶
-  io.emit('updateUserCount', onlineUsers);
+  console.log('使用者上線。');
+
+  // 當用戶加入房間時
+  socket.on('joinStoreRoom', (storeName) => {
+    socket.join(storeName); // socket.join 是用於讓用戶加入房間
+    console.log(`使用者加入商店房間：${storeName}`);
+    
+    // 您現在可以根據需要廣播消息到這個房間
+    // 比如廣播當前線上人數
+    const onlineUsers = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 获取如今庫房中的用户数量
+    socket.to(storeName).emit('updateUserCount', onlineUsers); // 向其他在此房間的用戶發送當前人數
+  });
 
   socket.on('disconnect', () => {
-    onlineUsers--;
-    console.log('使用者離線。 線上人數：' + onlineUsers + '人');
-    // 發送更新的線上人數
-    io.emit('updateUserCount', onlineUsers);  });
-
+    console.log('使用者離線。');
+  });
 });
 
 // 起動伺服器
