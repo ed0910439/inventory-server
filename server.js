@@ -26,7 +26,7 @@ app.use(bodyParser.json());
 
 // 連接到 MongoDB
 require('dotenv').config(); // 載入 .env 文件
-mongoose.connect(`${process.env.MONGO_URL}`, {
+mongoose.connect('mongodb+srv://ed0910439:JqW0QcNl5OkHILOX@cluster0.rt1py.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
   ssl: true,
 });
 
@@ -75,7 +75,7 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
             const Product = mongoose.model(collectionName, productSchema);
 
             // 抓取第一份 HTML 新資料
-            const firstResponse = await axios.get(`${process.env.HTML_RESPONSE_URL}${today}%27`);
+            const firstResponse = await axios.get(`https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=frmInvMould&w=convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3E%3D%272020-10-05%27%20and%20convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3C%3D%27${today}%27`);
             const firstHtml = firstResponse.data;
             const $first = cheerio.load(firstHtml);
 
