@@ -26,7 +26,7 @@ app.use(bodyParser.json());
 
 // 連接到 MongoDB
 require('dotenv').config(); // 載入 .env 文件
-mongoose.connect(`mongodb+srv://${process.env.MONGO_URL}`, {
+mongoose.connect(`${process.env.MONGO_URL}`, {
   ssl: true,
 });
 
