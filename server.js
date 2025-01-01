@@ -47,10 +47,10 @@ const productSchema = new mongoose.Schema({
 });
 // 动态生成集合名称
 const currentDate = new Date();
-const year = currentDate.getFullYear();
-const latesrmonth = String(currentDate.getMonth()).padStart(2, '0');
-const month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 注意：月份从0开始，因此需要加1
-const day = currentDate.getDate();
+let  year = currentDate.getFullYear();
+let  latesrmonth = String(currentDate.getMonth()).padStart(2, '0');
+let  month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 注意：月份从0开始，因此需要加1
+let  day = currentDate.getDate();
 
 // 根據日期決定使用的月份
 if (day < 16) {
