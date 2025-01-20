@@ -50,7 +50,7 @@ const currentDate = new Date();
 let  year = currentDate.getFullYear();
 let  latesrmonth = String(currentDate.getMonth()).padStart(2, '0');
 let  month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 注意：月份从0开始，因此需要加1
-let  day = currentDate.getDate();
+let  day = String(currentDate.getDate()).padStart(2, '0');
 
 // 根據日期決定使用的月份
 if (day < 16) {
@@ -60,135 +60,135 @@ if (day < 16) {
         year -= 1;
     }
 }
-
 app.get('/api/startInventory/:storeName', async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+    const storeName = req.params.storeName; // 直接從 URL 中獲取 storeName
+    console.log(`獲取庫存的門市名稱: ${storeName}`);
+
+    if (!storeName || storeName === 'notStart') {
+        console.error('門市錯誤: 未提供有效的店名');
+        return res.status(400).json({ message: '門市錯誤' }); // 使用 400 Bad Request 返回錯誤
+    }
 
     try {
-        if (storeName === 'notStart'){
-            res.status(204).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因为请求参数有误
-        } else {
+        const today = `${year}-${month}-${day}`;
+        const collectionName = `${year}${month}${storeName}`;
+        const latesCollectionName = `${year}${latesrmonth}${storeName}`;
+        const Product = mongoose.model(collectionName, productSchema);
 
-            const today = `${year}-${month}-${day}`;
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const latesCollectionName = `${year}${latesrmonth}${storeName}`; // 动态生成集合名称
-            const Product = mongoose.model(collectionName, productSchema);
+        // 抓取第一份 HTML 新資料
+        console.log(`抓取 HTML 資料...`);
+        const firstResponse = await axios.get(`https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=frmInvMould&w=convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3E%3D%272020-10-05%27%20and%20convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3C%3D%27${today}%27`);
+        const firstHtml = firstResponse.data;
+        const $first = cheerio.load(firstHtml);
 
-            // 抓取第一份 HTML 新資料
-            const firstResponse = await axios.get(`https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=frmInvMould&w=convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3E%3D%272020-10-05%27%20and%20convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3C%3D%27${today}%27`);
-            const firstHtml = firstResponse.data;
-            const $first = cheerio.load(firstHtml);
-
-            const newProducts = [];
-            $first('table tr').each((i, el) => {
-                if (i === 0) return; // 忽略表头
-                const row = $first(el).find('td').map((j, cell) => $first(cell).text().trim()).get();
-
-                if (row.length > 3) {
-                    const product = {
-                        模板名稱: row[1],
-                        商品編號: row[9],
-                        商品名稱: row[10],
-                        規格: row[11],
-                    };
-                    if (product.模板名稱 == '段純貞') {
-                        newProducts.push(product); // 只保存有效的产品
-                    }
-                }
-            });
-
-            // 获取源集合数据进行比对
-            const sourceCollection = mongoose.connection.collection(latesCollectionName);
-            const inventoryData = await sourceCollection.find({}).toArray(); // 获取源集合数据
-
-            // 处理最新的盘点数据
-            const refinedData = inventoryData.map(item => ({
-                商品編號: item.商品編號,
-                商品名稱: item.商品名稱,
-                規格: item.規格 || '',
-                數量: '', // 将数量设置为空
-                單位: item.單位 || '',
-                到期日: '', // 将到期日设置为空
-                廠商: item.廠商 || '',
-                庫別: item.庫別 || '',
-                盤點日期: '', // 将盘点日期设置为空
-                期初庫存: item.數量 || '' // 将数量拷贝到期初库存
-            }));
-            if (refinedData.length > 0) {
-                // 將完成的產品信息存入資料庫
-                await Product.insertMany(refinedData);
-            }
-
-            // 创建一个映射，方便通过商品编号查找
-            const inventoryMap = {};
-            inventoryData.forEach(item => {
-                inventoryMap[item.商品編號] = {
-                    庫別: item.庫別 || '待設定', // 如果没有则标记为待设置
-                    廠商: item.廠商 || '',
-                    期初庫存: item.數量 || '無紀錄' // 将数量重命名为期初库存
+        const newProducts = [];
+        $first('table tr').each((i, el) => {
+            if (i === 0) return; // 忽略表头
+            const row = $first(el).find('td').map((j, cell) => $first(cell).text().trim()).get();
+            if (row.length > 3 && row[1] === '段純貞') {
+                const product = {
+                    商品編號: row[9],
+                    商品名稱: row[10],
+                    規格: row[11],
                 };
-            });
-
-            // 更新新产品数据
-            const updatedProducts = newProducts.map(product => {
-                const sourceData = inventoryMap[product.商品編號]; // 通过商品编号获取对应数据
-                if (sourceData) {
-                    // 填入库别
-                    product.庫別 = sourceData.庫別;
-                    product.廠商 = sourceData.廠商;
-                    product.期初庫存 = sourceData.期初庫存; // 将数量字段重命名为期初库存
-                } else {
-                    // 如果没有找到匹配的商品编号，设置库别为待设置
-                    product.庫別 = '待設定';
-                }
-                return product; // 返回更新后的产品对象
-            });
-
-            // 从第二个 HTML 数据源抓取数据
-            const secondResponse = await axios.get('https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=panDianItemCS&id=3148&ClassStore_fCheckSetID=');
-            const secondHtml = secondResponse.data;
-            const $second = cheerio.load(secondHtml);
-
-            const secondInventoryData = [];
-            $second('table tr').each((i, el) => {
-                if (i === 0) return; // 忽略表头
-                const row = $second(el).find('td').map((j, cell) => $second(cell).text().trim()).get();
-
-                if (row.length > 3) {
-                    const product = {
-                        商品編號: row[0] || '未知',
-                        單位: row[3] || '未設定',
-                    };
-                    if (product.商品編號 && product.單位) {
-                        secondInventoryData.push(product); // 将有效的产品添加到列表中
-                    }
-                }
-            });
-
-            // 创建一个映射以比对第二个数据源
-            const secondInventoryMap = {};
-            secondInventoryData.forEach(item => {
-                secondInventoryMap[item.商品編號] = item.單位; // 将单位与商品编号映射
-            });
-
-            // 更新产品数据，结合第二个数据源中的单位
-            updatedProducts.forEach(product => {
-                if (secondInventoryMap[product.商品編號]) {
-                    product.單位 = secondInventoryMap[product.商品編號]; // 根据商品编号更新单位
-                }
-            });
-
-            // 返回所有库别为“待設定”的新品项，等待用户填写
-            const pendingProducts = updatedProducts.filter(product => product.庫別 === '待設定');
-
-            if (pendingProducts.length > 0) {
-                return res.json(pendingProducts); // 返回待用户填写的产品信息
-            } else {
-                console.log('没有待设置的产品项');
-                return res.status(200).json({ message: '没有待设置的产品项' });
+                newProducts.push(product);
             }
+        });
+
+        console.log(`從第一個資料源抓取到 ${newProducts.length} 個新產品`);
+
+        // 從第二個 HTML 數據源抓取數據
+        console.log(`抓取第二個 HTML 資料...`);
+        const secondResponse = await axios.get('https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=panDianItemCS&id=3148&ClassStore_fCheckSetID=');
+        const secondHtml = secondResponse.data;
+        const $second = cheerio.load(secondHtml);
+        const secondInventoryData = [];
+        
+        $second('table tr').each((i, el) => {
+            if (i === 0) return; // 忽略表头
+            const row = $second(el).find('td').map((j, cell) => $second(cell).text().trim()).get();
+            if (row.length > 3) {
+                const product = {
+                    商品編號: row[0],
+                    單位: row[3] || '',
+                };
+                secondInventoryData.push(product); 
+            }
+        });
+
+        console.log(`從第二個資料源抓取到 ${secondInventoryData.length} 個舊產品`);
+
+        // 以商品編號映射第二份數據的單位
+        const secondInventoryMap = secondInventoryData.reduce((map, item) => {
+            map[item.商品編號] = item.單位;
+            return map;
+        }, {});
+
+        // 更新第一份資料與第二份資料
+        newProducts.forEach(product => {
+            const matchedUnit = secondInventoryMap[product.商品編號];
+            if (matchedUnit) {
+                product.單位 = matchedUnit;
+            }
+        });
+
+        // 獲取源集合數據，進行產品和數據庫的比對
+        const sourceCollection = mongoose.connection.collection(latesCollectionName);
+        const inventoryData = await sourceCollection.find({}).toArray();
+        console.log(`獲取源數據完成, 條目數: ${inventoryData.length}`);
+
+        // 處理上期的盤點數據
+        const refinedData = inventoryData.map(item => ({
+            商品編號: item.商品編號,
+            商品名稱: item.商品名稱,
+            規格: item.規格 || '',
+            數量: '',
+            單位: item.單位 || '',
+            到期日: '',
+            廠商: item.廠商 || '',
+            庫別: item.庫別 || '',
+            盤點日期: '',
+            期初庫存: item.數量 || ''
+        }));
+
+        if (refinedData.length > 0) {
+            await Product.insertMany(refinedData);
+            console.log(`插入 ${refinedData.length} 條產品數據到集合: ${collectionName}`);
         }
 
+        // 创建映射以便通过商品编号查找
+        const inventoryMap = inventoryData.reduce((map, item) => {
+            map[item.商品編號] = {
+                庫別: item.庫別 || '待設定',
+                廠商: item.廠商 || '',
+                期初庫存: item.數量 || '無紀錄'
+            };
+            return map;
+        }, {});
+
+        // 更新新產品數據
+        const updatedProducts = newProducts.map(product => {
+            const sourceData = inventoryMap[product.商品編號];
+            if (sourceData) {
+                product.庫別 = sourceData.庫別;
+                product.廠商 = sourceData.廠商;
+                product.期初庫存 = sourceData.期初庫存;
+            } else {
+                product.庫別 = '待設定';
+            }
+            return product;
+        });
+
+        // 返回需新設置的商品
+        const pendingProducts = updatedProducts.filter(product => product.庫別 === '待設定');
+
+        if (pendingProducts.length > 0) {
+            console.log(`找到 ${pendingProducts.length} 個需設置的新品`);
+            return res.json(pendingProducts); // 返回待用戶填寫的產品信息
+        } else {
+            console.log('没有待设置的产品项');
+            return res.status(200).json({ message: '没有待设置的产品项' });
+        }
     } catch (error) {
         console.error('处理开始盘点请求时出错:', error);
         if (!res.headersSent) {
@@ -196,6 +196,8 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
         }
     }
 });
+
+    
 // API 端點：保存補齊的新品
 app.post('/api/saveCompletedProducts/:storeName', async (req, res) => {
 
@@ -375,6 +377,33 @@ app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => 
   }
 });
 
+app.put('/api/products/:storeName/:productCode', async (req, res) => {
+    const storeName = req.params.storeName;
+    const productCode = req.params.productCode;
+    const { 庫別, 廠商 } = req.body;
+
+    try {
+        const collectionName = `${year}${month}${storeName}`;  // 根據您之前的邏輯生成集合名稱
+        const Product = mongoose.model(collectionName, productSchema);
+
+        // 更新指定產品的庫別和廠商信息
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 庫別, 廠商 },
+            { new: true }
+        );
+
+        if (!updatedProduct) {
+            return res.status(404).json({ message: '產品未找到' });
+        }
+
+        // 成功更新後返回更新後的產品信息
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新產品信息時出錯:', error);
+        res.status(500).json({ message: '處理請求時出錯' });
+    }
+});
 
 // 設定 rate limiter: 每分鐘最多 5 次請求
 const archiveLimiter = rateLimit({
