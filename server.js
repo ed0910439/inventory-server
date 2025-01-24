@@ -464,12 +464,12 @@ if (decryptedPassword !== adminPassword) {
 
 
 // 創建 HTTP 端點和 Socket.IO 伺服器
-const server = https.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: '*', // 確保允許来自特定源的請求
-    methods: ['GET', 'POST'],
-  },
+const httpServer = https.createServer(app); // 確保您的 app 是使用 https 來創建的
+const io = new Server(httpServer, {
+    cors: {
+        origin: '*', // 允許所有來源的請求
+        methods: ['GET', 'POST'],
+    },
 });
 
 // Socket.IO 連接管理
