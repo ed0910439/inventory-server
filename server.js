@@ -4,29 +4,36 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const { Server } = require('socket.io');
-const ExcelJS = require('exceljs'); // 確保這行代碼在文件的頂部
-const axios = require('axios'); // 加入這一行以引入 axios
+const https = require('https');
+const ExcelJS = require('exceljs');
+const axios = require('axios');
 const { load } = require('cheerio');
 const bodyParser = require('body-parser');
-const cheerio = require('cheerio'); // 导入 cheerio
+const cheerio = require('cheerio');
 const { exec } = require('child_process');
+const multer = require('multer');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const csrf = require('csurf');
+const { Server } = require('socket.io'); // 確保引入 Socket.IO Server
 
-const multer = require('multer'); // 導入 multer 中間件
-const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
-
+const archiveLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1分鐘
+    max: 5, // 每個 IP 每個窗口期限制 5 次請求
+});
 // 初始化 Express 應用
 const app = express();
 app.use(cors());
 app.use(express.json()); // 解析 application/json
 app.use(express.urlencoded({ extended: true })); 
 app.use(bodyParser.json());
+app.use(helmet());
+app.use(csrf());
 
 
 // 連接到 MongoDB
 require('dotenv').config(); // 載入 .env 文件
-mongoose.connect('mongodb+srv://ed0910439:JqW0QcNl5OkHILOX@cluster0.rt1py.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
+mongoose.connect(process.env.MONGODB_URI, {
   ssl: true,
 });
 
@@ -60,8 +67,8 @@ if (day < 16) {
         year -= 1;
     }
 }
-app.get('/api/startInventory/:storeName', async (req, res) => {
-    const storeName = req.params.storeName; // 直接從 URL 中獲取 storeName
+app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
+const storeName = sanitizeInput(req.params.storeName);
     console.log(`獲取庫存的門市名稱: ${storeName}`);
 
     if (!storeName || storeName === 'notStart') {
@@ -74,10 +81,13 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
         const collectionName = `${year}${month}${storeName}`;
         const latesCollectionName = `${year}${latesrmonth}${storeName}`;
         const Product = mongoose.model(collectionName, productSchema);
+        const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
+        const secondUrl = process.env.SECOND_URL;
+
 
         // 抓取第一份 HTML 新資料
         console.log(`抓取 HTML 資料...`);
-        const firstResponse = await axios.get(`https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=frmInvMould&w=convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3E%3D%272020-10-05%27%20and%20convert%28varchar%2810%29%2CFBIZDATE%2C120%29%3C%3D%27${today}%27`);
+        const firstResponse = await axios.get(firstUrl);
         const firstHtml = firstResponse.data;
         const $first = cheerio.load(firstHtml);
 
@@ -99,7 +109,7 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
 
         // 從第二個 HTML 數據源抓取數據
         console.log(`抓取第二個 HTML 資料...`);
-        const secondResponse = await axios.get('https://epos.kingza.com.tw:8090/hyisoft.lost/exportpand.aspx?t=panDianItemCS&id=3148&ClassStore_fCheckSetID=');
+        const secondResponse = await axios.get(secondUrl);
         const secondHtml = secondResponse.data;
         const $second = cheerio.load(secondHtml);
         const secondInventoryData = [];
@@ -199,9 +209,9 @@ app.get('/api/startInventory/:storeName', async (req, res) => {
 
     
 // API 端點：保存補齊的新品
-app.post('/api/saveCompletedProducts/:storeName', async (req, res) => {
+app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, res) => {
 
-    const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+    const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 获取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -279,13 +289,13 @@ app.get('/api/version', (req, res) => {
 });
 
 
-app.get(`/api/products`, async (req, res) => {
+app.get(`/api/products`, archiveLimiter, async (req, res) => {
     return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
     });
 
 // 獲取產品數據的 API
-app.get(`/api/products/:storeName`, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
+    const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 获取 URL 中的 storeName
 
     try {
         if (storeName === '') {
@@ -308,8 +318,8 @@ app.get(`/api/products/:storeName`, async (req, res) => {
     
 });
 // 更新產品数量的 API 端點
-app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
-        const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/quantity', archiveLimiter, async (req, res) => {
+        const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 获取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -343,8 +353,8 @@ app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
 });
 
 // 更新產品到期日的 API 端點
-app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => {
-        const storeName = req.params.storeName || 'notStart'; // 获取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/expiryDate', archiveLimiter, async (req, res) => {
+        const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 获取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -377,16 +387,17 @@ app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => 
   }
 });
 
-app.put('/api/products/:storeName/:productCode', async (req, res) => {
-    const storeName = req.params.storeName;
-    const productCode = req.params.productCode;
-    const { 庫別, 廠商 } = req.body;
+app.put('/api/products/:storeName/:productCode', archiveLimiter, async (req, res) => {
+    const storeName = sanitizeInput(req.params.storeName);
+    const productCode = sanitizeInput(req.params.productCode);
+    const completedProducts = req.body.completedProducts; // 準備完成的產品數據
+    const { 庫別, 廠商 } = req.body; // 提取庫別和廠商這兩個字段
 
     try {
-        const collectionName = `${year}${month}${storeName}`;  // 根據您之前的邏輯生成集合名稱
+        const collectionName = `${year}${month}${storeName}`;  // 根據年月生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
 
-        // 更新指定產品的庫別和廠商信息
+        // 使用 findOneAndUpdate 更新產品信息
         const updatedProduct = await Product.findOneAndUpdate(
             { 商品編號: productCode },
             { 庫別, 廠商 },
@@ -397,7 +408,7 @@ app.put('/api/products/:storeName/:productCode', async (req, res) => {
             return res.status(404).json({ message: '產品未找到' });
         }
 
-        // 成功更新後返回更新後的產品信息
+        // 返回更新後的產品信息
         res.json(updatedProduct);
     } catch (error) {
         console.error('更新產品信息時出錯:', error);
@@ -405,25 +416,23 @@ app.put('/api/products/:storeName/:productCode', async (req, res) => {
     }
 });
 
-// 設定 rate limiter: 每分鐘最多 5 次請求
-const archiveLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 5, // limit each IP to 5 requests per windowMs
-});
+
 
 
 
 
 // API 端點處理盤點歸檔請求
-app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
+app.post('/api/archive/:storeName', archiveLimiter, archiveLimiter, async (req, res) => {
     try {
-        const storeName = req.params.storeName;
-        const password = req.body.password;
-        const adminPassword = process.env.PASSWORD; //           
+        const storeName = sanitizeInput(req.params.storeName);
+        const encryptedPassword = req.body.password; // 
+        const adminPassword = process.env.ADMIN_PASSWORD;
 
-    if (password !== adminPassword) {
-        return res.status(401).json({ message: '密碼不正確' });
-            }else{
+const decryptedPassword = CryptoJS.AES.decrypt(encryptedPassword, process.env.SECRET_KEY).toString(CryptoJS.enc.Utf8);
+
+if (decryptedPassword !== adminPassword) {
+    return res.status(401).json({ message: '密碼不正確' });
+}
 
         const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
@@ -442,7 +451,7 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
 
         res.status(200).send('數據歸檔成功');
 
-    }} catch (error) {
+    } catch (error) {
         console.error('處理歸檔請求時出錯:', error);
         // 避免重复发送响应
         if (!res.headersSent) {
@@ -455,7 +464,7 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
 
 
 // 創建 HTTP 端點和 Socket.IO 伺服器
-const server = http.createServer(app);
+const server = https.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*', // 確保允許来自特定源的請求
