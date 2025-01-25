@@ -4,7 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
-const https = require('https');
+const http = require('http');
 const ExcelJS = require('exceljs');
 const axios = require('axios');
 const { load } = require('cheerio');
@@ -16,19 +16,38 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const csrf = require('csurf');
 const { Server } = require('socket.io'); // 確保引入 Socket.IO Server
-
+const csrfProtection = csrf({ cookie: true }); // 這裡可以選擇使用 cookie
+const cookieParser = require('cookie-parser');
 const archiveLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1分鐘
     max: 5, // 每個 IP 每個窗口期限制 5 次請求
 });
 // 初始化 Express 應用
 const app = express();
+app.use(cookieParser());
 app.use(cors());
 app.use(express.json()); // 解析 application/json
-app.use(express.urlencoded({ extended: true })); 
+// 使用 body-parser 中間件
+app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+
+// 使用 CSRF 中介
+app.use(csrfProtection);
 app.use(helmet());
 app.use(csrf());
+
+
+// 提供 CSRF 令牌
+app.get('/api/csrf-token', (req, res) => {
+    res.json({ csrfToken: req.csrfToken() });
+});
+
+app.use((err, req, res, next) => {
+    if (err.code === 'EBADCSRFTOKEN') {
+        return res.status(403).send('CSRF token validation failed');
+    }
+    next(err);
+});
 
 
 // 連接到 MongoDB
@@ -463,9 +482,9 @@ if (decryptedPassword !== adminPassword) {
 
 
 
-// 創建 HTTP 端點和 Socket.IO 伺服器
-const httpServer = https.createServer(app); // 確保您的 app 是使用 https 來創建的
-const io = new Server(httpServer, {
+
+const server = http.createServer(app);
+const io = new Server(server, {
     cors: {
         origin: '*', // 允許所有來源的請求
         methods: ['GET', 'POST'],
@@ -495,6 +514,6 @@ io.on('connection', (socket) => {
 
 // 起動伺服器
 const PORT = process.env.PORT || 4000;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`伺服器正在端口 ${PORT} 上運行`);
 });
