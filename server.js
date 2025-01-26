@@ -1,5 +1,7 @@
 //server.js
 const express = require('express');
+const { Server } = require('socket.io'); // 確保引入 Socket.IO Server
+const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
@@ -8,47 +10,45 @@ const http = require('http');
 const ExcelJS = require('exceljs');
 const axios = require('axios');
 const { load } = require('cheerio');
-const bodyParser = require('body-parser');
 const cheerio = require('cheerio');
 const { exec } = require('child_process');
 const multer = require('multer');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const csrf = require('csurf');
-const { Server } = require('socket.io'); // 確保引入 Socket.IO Server
-const csrfProtection = csrf({ cookie: true }); // 這裡可以選擇使用 cookie
-const cookieParser = require('cookie-parser');
-const archiveLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1分鐘
-    max: 5, // 每個 IP 每個窗口期限制 5 次請求
-});
-// 初始化 Express 應用
+const bodyParser = require('body-parser');
 const app = express();
+
+// 中介配置
 app.use(cookieParser());
-app.use(cors());
-app.use(express.json()); // 解析 application/json
-// 使用 body-parser 中間件
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true })); // 解析 URL 編碼的請求
+app.use(bodyParser.json()); // 解析 JSON 請求
 
-// 使用 CSRF 中介
-app.use(csrfProtection);
+// 設置 Helmet 提高安全性
 app.use(helmet());
-app.use(csrf());
 
+// 設定 CSRF 保護
+const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
+app.use(csrfProtection);
 
-// 提供 CSRF 令牌
+// 提供 CSRF 令牌的 API 端點
 app.get('/api/csrf-token', (req, res) => {
-    res.json({ csrfToken: req.csrfToken() });
+    res.json({ csrfToken: req.csrfToken() }); // 回傳 CSRF 令牌
 });
 
+// CSRF 錯誤處理
 app.use((err, req, res, next) => {
     if (err.code === 'EBADCSRFTOKEN') {
         return res.status(403).send('CSRF token validation failed');
     }
-    next(err);
+    next(err); // 繼續處理其他錯誤
 });
 
+// 設定 rate limiter: 每分鐘最多 5 次請求
+const archiveLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 5, // limit each IP to 5 requests per windowMs
+});
 
 // 連接到 MongoDB
 require('dotenv').config(); // 載入 .env 文件
