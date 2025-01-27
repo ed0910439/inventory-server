@@ -474,7 +474,6 @@ if (decryptedPassword !== adminPassword) {
         console.error('處理歸檔請求時出錯:', error);
         // 避免重复发送响应
         if (!res.headersSent) {
-            res.status(500).send('伺服器錯誤');
         }
     }
 });
@@ -485,7 +484,7 @@ if (decryptedPassword !== adminPassword) {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
+    cors: { 
         origin: '*', // 允許所有來源的請求
         methods: ['GET', 'POST'],
     },
@@ -495,8 +494,7 @@ const io = new Server(server, {
 let onlineUsers = 0;  // 計數線上人數
 io.on('connection', (socket) => {
   console.log('使用者上線。');
-
-  // 當用戶加入房間時
+  -
   socket.on('joinStoreRoom', (storeName) => {
     socket.join(storeName); // socket.join 是用於讓用戶加入房間
     console.log(`使用者加入商店房間：${storeName}`);
@@ -505,7 +503,7 @@ io.on('connection', (socket) => {
     // 比如廣播當前線上人數
     const onlineUsers = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 获取如今庫房中的用户数量
     socket.to(storeName).emit('updateUserCount', onlineUsers); // 向其他在此房間的用戶發送當前人數
-  });
+  });o
 
   socket.on('disconnect', () => {
     console.log('使用者離線。');
@@ -514,6 +512,6 @@ io.on('connection', (socket) => {
 
 // 起動伺服器
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => {
-  console.log(`伺服器正在端口 ${PORT} 上運行`);
+server.listen(PORT, () => {
+  console.log(`伺服器正在 http://localhost:${PORT} 上運行`);
 });
