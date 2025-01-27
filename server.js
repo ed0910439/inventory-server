@@ -1,12 +1,12 @@
 // server.js
 const express = require('express');
-const { Server } = require('socket.io'); // 確保引入 Socket.IO Server
+const { Server } = require('socket.io'); // 引入 Socket.IO Server
 const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
+const http = require('http'); // 引入 http 模組
 const ExcelJS = require('exceljs');
 const axios = require('axios');
 const cheerio = require('cheerio');
@@ -14,17 +14,10 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const csrf = require('csurf');
 const bodyParser = require('body-parser');
-const CryptoJS = require('crypto-js');
-require('dotenv').config(); // 載入環境變數
 
-// 設定限速器
-const archiveLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1分鐘
-    max: 5, // 每個 IP 每個窗口期限制 5 次請求
-});
+require('dotenv').config(); // 環境變數管理
 
-// 初始化 Express 應用
-const app = express();
+const app = express(); // 初始化 Express 應用
 
 // 中介配置
 app.use(cookieParser());
@@ -33,8 +26,8 @@ app.use(bodyParser.urlencoded({ extended: true })); // 解析 URL 編碼的請�
 app.use(bodyParser.json()); // 解析 JSON 請求
 app.use(helmet()); // 使用 Helmet 增加安全性
 
-// 設置 CSRF 保護
-const csrfProtection = csrf({ cookie: true });
+// 設定 CSRF 保護
+const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
 app.use(csrfProtection); // 使用 CSRF 中介
 
 // 提供 CSRF 令牌的 API 端點
