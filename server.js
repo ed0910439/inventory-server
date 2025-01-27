@@ -43,6 +43,11 @@ app.use((err, req, res, next) => {
     next(err); // 繼續處理其他錯誤
 });
 
+const archiveLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 分鐘
+    max: 5, // 每個 IP 每窗口限制 5 次請求
+});
+
 // 連接到 MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
