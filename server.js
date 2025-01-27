@@ -484,7 +484,7 @@ if (decryptedPassword !== adminPassword) {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {            res.status(500).send('伺服器錯誤');
+    cors: {
 
         origin: '*', // 允許所有來源的請求
         methods: ['GET', 'POST'],
