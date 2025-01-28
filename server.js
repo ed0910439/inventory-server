@@ -50,8 +50,7 @@ const archiveLimiter = rateLimit({
 
 // 連接到 MongoDB
 mongoose.connect(process.env.MONGODB_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+
 })
 .then(() => console.log('成功連接到 MongoDB'))
 .catch(err => console.error('MongoDB 連接錯誤:', err));
