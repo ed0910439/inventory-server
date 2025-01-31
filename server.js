@@ -71,10 +71,17 @@ const productSchema = new mongoose.Schema({
     期初庫存: { type: String, required: false }, // 新增欄位：期初庫存
 
 });
+
+// 定義 sanitizeInput 函數
+const sanitizeInput = (input) => {
+    return encodeURIComponent(input.trim());
+};
+
 // 动态生成集合名称
 const currentDate = new Date();
 let  year = currentDate.getFullYear();
 let  latesrmonth = String(currentDate.getMonth()).padStart(2, '0');
+let  latesYear = currentDate.getFullYear();
 let  month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 注意：月份从0開始，因此需要加1
 let  day = currentDate.getDate();
 
@@ -86,9 +93,14 @@ if (day < 16) {
         year -= 1;
     }
 }
+if (latesrmonth == 00) {
+    latesrmonth = 12; // 回到前一年的12月
+    latesYear -= 1 // 回到上個年
+    }
+
 
 app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
-    const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart'){
@@ -97,12 +109,15 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
 
             const today = `${year}-${month}-${day}`;
             const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const latesCollectionName = `${year}${latesrmonth}${storeName}`; // 动态生成集合名称
+            const latesCollectionName = `${latesYear}${latesrmonth}${storeName}`; // 动态生成集合名称
             const Product = mongoose.model(collectionName, productSchema);
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
             // 抓取第一份 HTML 新資料
+            console.log(collectionName);
+            console.log(latesCollectionName);
             console.log(`抓取 HTML 資料...`);
+
             const firstResponse = await axios.get(firstUrl);
             const firstHtml = firstResponse.data;
             const $first = cheerio.load(firstHtml);
@@ -227,9 +242,9 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
     }
 });
 // API 端點：保存補齊的新品
-app.post('/api/saveCompletedProducts/:storeName', async (req, res) => {
+app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, res) => {
 
-    const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -279,7 +294,7 @@ app.get('/api/ping', (req, res) => {
     const client = new net.Socket();
     client.setTimeout(5000);
 
-    client.connect(443, 'hass.edc-pws.com', () => {
+    client.connect(443, 'google.com', () => {
         // 连接成功
         res.status(200).json({ eposConnected: true });
         client.destroy();
@@ -295,25 +310,15 @@ app.get('/api/ping', (req, res) => {
         res.send({ connected: false });
     });
 });
-// API端點: 獲取期初庫存數據
-app.get('/api/version', (req, res) => {
-  fs.readFile(versionFilePath, 'utf8', (err, data) => {
-    if (err) {
-      console.error("讀取文件時出錯:", err);
-      return res.status(500).json({ message: '伺服器錯誤' });
-    }
-    res.json(JSON.parse(data)); // 返回JSON數據
-  });
-});
 
 
-app.get(`/api/products`, async (req, res) => {
+app.get(`/api/products`, archiveLimiter, async (req, res) => {
     return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
     });
 
 // 獲取產品數據的 API
-app.get(`/api/products/:storeName`, async (req, res) => {
-    const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 獲取 URL 中的 storeName
+app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
+    const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === '') {
@@ -336,8 +341,8 @@ app.get(`/api/products/:storeName`, async (req, res) => {
     
 });
 // 更新產品數量的 API 端點
-app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
-        const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 獲取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/quantity', archiveLimiter, async (req, res) => {
+        const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -371,8 +376,8 @@ app.put('/api/products/:storeName/:productCode/quantity', async (req, res) => {
 });
 
 // 更新產品到期日的 API 端點
-app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => {
-        const storeName = sanitizeInput(req.params.storeName) || 'notStart'; // 獲取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/expiryDate', archiveLimiter, async (req, res) => {
+        const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -408,13 +413,16 @@ app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => 
 // API 端點處理盤點歸檔請求
 app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
     try {
-        const storeName = sanitizeInput(req.params.storeName);
+        const storeName = req.params.storeName;
         const password = req.body.password;
-        const adminPassword = process.env.PASSWORD; //           
+        const adminPassword = process.env.ADMIN_PASSWORD;
 
-    if (password !== adminPassword) {
-        return res.status(401).json({ message: '密碼不正確' });
-            }else{
+
+        const decryptedPassword = CryptoJS.AES.decrypt(encryptedPassword, process.env.SECRET_KEY).toString(CryptoJS.enc.Utf8);
+        if (decryptedPassword !== adminPassword) {
+            return res.status(401).json({ message: '密碼不正確' });
+        }
+
 
         const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
@@ -433,7 +441,7 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
 
         res.status(200).send('數據歸檔成功');
 
-    }} catch (error) {
+    } catch (error) {
         console.error('處理歸檔請求時出錯:', error);
         // 避免重复发送响应
         if (!res.headersSent) {
@@ -476,7 +484,7 @@ io.on('connection', (socket) => {
 });
 
 // 起動伺服器
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 4000
 server.listen(PORT, () => {
   console.log(`伺服器正在端口 ${PORT} 上運行`);
 });
