@@ -12,7 +12,7 @@ const axios = require('axios'); // 加入這一行以引入 axios
 const cheerio = require('cheerio'); // 导入 cheerio
 const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
 const helmet = require('helmet');
-const csrf = require('csurf');
+//const csrf = require('csurf');
 const bodyParser = require('body-parser');
 
 require('dotenv').config(); // 環境變數管理
@@ -26,11 +26,11 @@ app.use(bodyParser.json()); // 解析 JSON 請求
 app.use(helmet()); // 使用 Helmet 增加安全性
 
 // 設定 CSRF 保護
-const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
-app.use(csrfProtection); // 使用 CSRF 中介
+//const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
+//app.use(csrfProtection); // 使用 CSRF 中介
 
 // 提供 CSRF 令牌的 API 端點
-app.get('/api/csrf-token', (req, res) => {
+/*app.get('/api/csrf-token', (req, res) => {
     res.json({ csrfToken: req.csrfToken() }); // 回傳 CSRF 令牌
 });
 
@@ -41,7 +41,7 @@ app.use((err, req, res, next) => {
     }
     next(err); // 繼續處理其他錯誤
 });
-
+*/
 const archiveLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 分鐘
     max: 5, // 每個 IP 每窗口限制 5 次請求
