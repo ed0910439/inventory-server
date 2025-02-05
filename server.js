@@ -59,7 +59,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 // 定義產品模型
 // 初始化 Express 應用後
 const productSchema = new mongoose.Schema({
-    商品編號: { t       5ype: String, required: true },
+    商品編號: { type: String, required: true },
     商品名稱: { type: String, required: false },
     規格: { type: String, required: false },
     數量: { type: Number , rquired: false },
@@ -93,7 +93,7 @@ if (day < 16) {
         year -= 1;
     }
 }
-if (latesrmonth == 00) {
+if (latesrmonth == '00') {
     latesrmonth = 12; // 回到前一年的12月
     latesYear -= 1 // 回到上個年
     }
