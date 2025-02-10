@@ -88,7 +88,7 @@ let  day = currentDate.getDate();
 // 根據日期決定使用的月份
 if (day < 16) {
     month -= 1; // 回到上個月
-    if (month === 0) {
+    if (month == '00') {
         month = 12; // 回到前一年的12月
         year -= 1;
     }
