@@ -24,6 +24,7 @@ app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true })); // 解析 URL 編碼的請求
 app.use(bodyParser.json()); // 解析 JSON 請求
 app.use(helmet()); // 使用 Helmet 增加安全性
+app.enable('trust proxy'); // 启用信任代理
 
 // 設定 CSRF 保護
 //const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
@@ -44,7 +45,11 @@ app.use((err, req, res, next) => {
 */
 const archiveLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 分鐘
-    max: 5, // 每個 IP 每窗口限制 5 次請求
+    max: 5, // 限制每個 IP 每窗口的請求數
+    keyGenerator: (req, res) => {
+        // 当 trust proxy 设为 true 时，使用 X-Forwarded-For
+        return req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+    },
 });
 
 
