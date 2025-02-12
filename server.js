@@ -449,7 +449,32 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
         }
     }
 });
+// 更新，根据商店名称清除库存数据
+app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
+    try {
+    const storeName = req.params.storeName; // 获取 URL 中的 storeName
+    const password = req.body.password;
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
+
+    const decryptedPassword = CryptoJS.AES.decrypt(encryptedPassword, process.env.SECRET_KEY).toString(CryptoJS.enc.Utf8);
+    if (decryptedPassword !== adminPassword) {
+        return res.status(401).json({ message: '密碼不正確' });
+    }
+
+        const collectionName = `${year}${month}${storeName}`; // 根据年份、月份和门市生成集合名称
+        const Product = mongoose.model(collectionName, productSchema);
+
+        // 清除库存
+        await Product.deleteMany(); // 删除所有相关产品数据
+        message.success('库存资料已成功清除'); // 成功提示
+
+        res.status(200).send('库存清除成功'); // 返回成功消息
+    } catch (error) {
+        console.error('清除库存时出错:', error);
+        res.status(500).send('服务器错误'); // 返回500错误
+    }
+});
 
 
 
