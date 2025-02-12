@@ -462,6 +462,7 @@ app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
 
         const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
+        logger.log(collectionName);
         const products = await Product.find(); // 獲取產品數據
 
         // 清除库存
@@ -471,8 +472,10 @@ app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
 
         res.status(200).send('库存清除成功'); // 返回成功消息
     } catch (error) {
-        console.error('清除库存时出错:', error);
-        res.status(500).send('服务器错误'); // 返回500错误
+        // 避免重复发送响应
+        if (!res.headersSent) {
+            res.status(500).send('伺服器錯誤');
+        }
     }
 });
 
