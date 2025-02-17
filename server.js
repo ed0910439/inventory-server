@@ -12,7 +12,7 @@ const axios = require('axios'); // 加入這一行以引入 axios
 const cheerio = require('cheerio'); // 导入 cheerio
 const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
 const helmet = require('helmet');
-//const csrf = require('csurf');
+const csrf = require('csurf');
 const bodyParser = require('body-parser');
 
 require('dotenv').config(); // 環境變數管理
@@ -27,11 +27,11 @@ app.use(helmet()); // 使用 Helmet 增加安全性
 app.enable('trust proxy'); // 启用信任代理
 
 // 設定 CSRF 保護
-//const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
-//app.use(csrfProtection); // 使用 CSRF 中介
+const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
+app.use(csrfProtection); // 使用 CSRF 中介
 
 // 提供 CSRF 令牌的 API 端點
-/*app.get('/api/csrf-token', (req, res) => {
+app.get('/api/csrf-token', (req, res) => {
     res.json({ csrfToken: req.csrfToken() }); // 回傳 CSRF 令牌
 });
 
@@ -42,7 +42,8 @@ app.use((err, req, res, next) => {
     }
     next(err); // 繼續處理其他錯誤
 });
-*/
+
+
 const archiveLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 分鐘
     max: 5, // 限制每個 IP 每窗口的請求數
@@ -81,27 +82,45 @@ const productSchema = new mongoose.Schema({
 const sanitizeInput = (input) => {
     return encodeURIComponent(input.trim());
 };
-
 // 动态生成集合名称
 const currentDate = new Date();
-let  year = currentDate.getFullYear();
-let  latesrmonth = String(currentDate.getMonth()).padStart(2, '0');
-let  latesYear = currentDate.getFullYear();
-let  month = String(currentDate.getMonth() + 1).padStart(2, '0'); // 注意：月份从0開始，因此需要加1
-let  day = currentDate.getDate();
+let year = currentDate.getFullYear();
+let lastYear = currentDate.getFullYear();
+let month, lastMonth;
 
-// 根據日期決定使用的月份
-if (day < 16) {
-    month -= 1; // 回到上個月
-    if (month == '00') {
-        month = 12; // 回到前一年的12月
-        year -= 1;
+// 獲取當前日期的日
+let day = currentDate.getDate();
+
+// 根據日期決定月份
+if (day <= 15) {
+    // 每月15日（含）以前
+    month = currentDate.getMonth(); // 上個月
+    lastMonth = currentDate.getMonth() - 1; // 上上一個月
+
+    // 如果上一個月為 -1(即1月)，則需要調整年份
+    if (month < 0) {
+        month = 11; // 12月
+        year -= 1; // 前一年
     }
+
+    // 如果上上一個月小於0則也需要調整
+    if (lastMonth < 0) {
+        lastMonth = 11; // 12月
+        lastYear -= 1; // 在調整
+    }
+} else {
+    // 每月16日開始
+    month = currentDate.getMonth() + 1; // 當前月份（1-12）
+    lastMonth = currentDate.getMonth(); // 上個月
 }
-if (latesrmonth == '00') {
-    latesrmonth = 12; // 回到前一年的12月
-    latesYear -= 1 // 回到上個年
-    }
+
+// 格式化月份為兩位數
+const formattedMonth = String(month).padStart(2, '0');
+const formattedLastMonth = String(lastMonth).padStart(2, '0'); // 轉換成1-12格式
+
+console.log(year, formattedMonth, day); // 輸出當前年份、月份、日期
+console.log(year, formattedLastMonth, day); // 輸出上個月份的年份、月份、日期
+
 
 
 app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
@@ -114,13 +133,13 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
 
             const today = `${year}-${month}-${day}`;
             const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const latesCollectionName = `${latesYear}${latesrmonth}${storeName}`; // 动态生成集合名称
+            const lastCollectionName = `${lastYear}${lastMonth}${storeName}`; // 动态生成集合名称
             const Product = mongoose.model(collectionName, productSchema);
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
             // 抓取第一份 HTML 新資料
             console.log(collectionName);
-            console.log(latesCollectionName);
+            console.log(lastCollectionName);
             console.log(`抓取 HTML 資料...`);
 
             const firstResponse = await axios.get(firstUrl);
@@ -147,7 +166,7 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
             console.log(`從第一個資料源抓取到 ${newProducts.length} 個新產品`);
 
             // 獲取源集合數據進行比對
-            const sourceCollection = mongoose.connection.collection(latesCollectionName);
+            const sourceCollection = mongoose.connection.collection(lastCollectionName);
             const inventoryData = await sourceCollection.find({}).toArray(); // 獲取源集合數據
 
             // 處理最新的盤點數據
