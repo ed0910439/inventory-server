@@ -507,7 +507,12 @@ app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
 
 // 創建 HTTP 端點和 Socket.IO 伺服器
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: {
+    origin: '*', // 確保允許来自特定源的請求
+    methods: ['GET', 'POST','PUT'],
+  },
+});
 
 // Socket.IO 連接管理
 let onlineUsers = 0;  // 計數線上人數
