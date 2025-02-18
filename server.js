@@ -45,7 +45,7 @@ app.use((err, req, res, next) => {
     // 處理其他錯誤
     return res.status(500).json({ error: 'Something went wrong' });
 });*/
-app.use(cors({ origin: 'https://inventory-client.edc-pws.com' })); // 或者使用 '*' 来允许所有来源
+app.use(cors({ origin: '*' })); // 或者使用 '*' 来允许所有来源
 
 // 配置 API 請求的速率限制，防止濫用
 const archiveLimiter = rateLimit({
@@ -120,7 +120,7 @@ const formattedMonth = String(month).padStart(2, '0');
 const formattedLastMonth = String(lastMonth).padStart(2, '0'); // 轉換成1-12格式
 
 console.log(year, formattedMonth, day); // 輸出當前年份、月份、日期
-console.log(year, formattedLastMonth, day); // 輸出上個月份的年份、月份、日期
+console.log(lastYear, formattedLastMonth, day); // 輸出上個月份的年份、月份、日期
 
 
 
@@ -132,9 +132,9 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
             res.status(204).send('尚未選擇門市'); // 使用 204，
         } else {
 
-            const today = `${year}-${month}-${day}`;
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const lastCollectionName = `${lastYear}${lastMonth}${storeName}`; // 动态生成集合名称
+            const today = `${year}-${formattedMonth}-${day}`;
+            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`; // 动态生成集合名称
             const Product = mongoose.model(collectionName, productSchema);
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
@@ -276,7 +276,7 @@ app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, re
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
         } else {
 
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
             const Product = mongoose.model(collectionName, productSchema);
 
             const completedProducts = req.body;
@@ -350,7 +350,7 @@ app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
         } else {
 
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
             const Product = mongoose.model(collectionName, productSchema);
             const products = await Product.find(); // 獲取產品數據
 
@@ -374,7 +374,7 @@ app.put('/api/products/:storeName/:productCode/quantity', archiveLimiter, async 
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
         } else {
 
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
             const Product = mongoose.model(collectionName, productSchema);
             const products = await Product.find(); // 獲取產品數據
       const { productCode } = req.params;
@@ -409,7 +409,7 @@ app.put('/api/products/:storeName/:productCode/expiryDate', archiveLimiter, asyn
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
         } else {
 
-            const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
             const Product = mongoose.model(collectionName, productSchema);
             const products = await Product.find(); // 獲取產品數據
       const { productCode } = req.params;
@@ -449,7 +449,7 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
         }
 
 
-        const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+        const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
         const products = await Product.find(); // 獲取產品數據
 
@@ -485,7 +485,7 @@ app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
             return res.status(401).json({ message: '密碼不正確' });
         }
 
-        const collectionName = `${year}${month}${storeName}`; // 根據年份、月份和門市生成集合名稱
+        const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
         const Product = mongoose.model(collectionName, productSchema);
         logger.log(collectionName);
         const products = await Product.find(); // 獲取產品數據
