@@ -26,7 +26,7 @@ app.use(cookieParser());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(helmet());
-app.set('trust proxy', false);
+app.set('trust proxy', ture);
 
 /*// 設定 CSRF 保護
 const csrfProtection = csrf({ cookie: true });
