@@ -1,4 +1,3 @@
-//server.js
 const express = require('express');
 const { Server } = require('socket.io');
 const cookieParser = require('cookie-parser');
@@ -7,55 +6,56 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
-const ExcelJS = require('exceljs'); // 確保這行代碼在文件的頂部
-const axios = require('axios'); // 加入這一行以引入 axios
-const cheerio = require('cheerio'); // 导入 cheerio
-const rateLimit = require('express-rate-limit'); // 導入 express-rate-limit 中間件
+const ExcelJS = require('exceljs');
+const axios = require('axios');
+const cheerio = require('cheerio');
+const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const csrf = require('csurf');
 const bodyParser = require('body-parser');
+const morgan = require('morgan'); // 新增日誌中介
 
-require('dotenv').config(); // 環境變數管理
+require('dotenv').config();
 
-const app = express(); // 初始化 Express 應用
+const app = express(); 
+
 // 中介配置
+app.use(morgan('combined')); // 使用 morgan 記錄 HTTP 請求
 app.use(cookieParser());
 app.use(cors());
-app.use(bodyParser.urlencoded({ extended: true })); // 解析 URL 編碼的請求
-app.use(bodyParser.json()); // 解析 JSON 請求
-app.use(helmet()); // 使用 Helmet 增加安全性
-app.enable('trust proxy'); // 启用信任代理
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(helmet());
+app.enable('trust proxy');
 
 // 設定 CSRF 保護
-const csrfProtection = csrf({ cookie: true }); // 使用 cookie 存儲 CSRF 令牌
-app.use(csrfProtection); // 使用 CSRF 中介
+const csrfProtection = csrf({ cookie: true });
+app.use(csrfProtection);
 
 // 提供 CSRF 令牌的 API 端點
 app.get('/api/csrf-token', (req, res) => {
-    res.json({ csrfToken: req.csrfToken() }); // 回傳 CSRF 令牌
+    res.json({ csrfToken: req.csrfToken() });
 });
 
 // CSRF 錯誤處理
 app.use((err, req, res, next) => {
     if (err.code === 'EBADCSRFTOKEN') {
-        return res.status(403).send('CSRF token validation failed'); // 返回 CSRF 錯誤
+        return res.status(403).json({ error: 'CSRF token validation failed' });
     }
-    next(err); // 繼續處理其他錯誤
+    // 處理其他錯誤
+    return res.status(500).json({ error: 'Something went wrong' });
 });
 
-
+// 配置 API 請求的速率限制，防止濫用
 const archiveLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 分鐘
-    max: 5, // 限制每個 IP 每窗口的請求數
-    keyGenerator: (req, res) => {
-        // 当 trust proxy 设为 true 时，使用 X-Forwarded-For
-        return req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    },
+    windowMs: 15 * 60 * 1000, // 15 分鐘窗口
+    max: 100, // 每個 IP 15 分鐘內最多可以請求 100 次
 });
+app.use('/api/', archiveLimiter); // 只對 API 請求應用 rate limit
+
 
 
 // 連接到 MongoDB
-require('dotenv').config(); // 載入 .env 文件
 mongoose.connect(process.env.MONGODB_URI, {
   ssl: true,
 })
@@ -72,9 +72,9 @@ const productSchema = new mongoose.Schema({
     單位: { type: String, required: false },
     到期日: { type: String, required: false },
     廠商: { type: String, required: false },
-    庫別: { type: String, required: false }, // 更正名稱為庫別
+    庫別: { type: String, required: false }, 
     盤點日期: { type: String, required: false },
-    期初庫存: { type: String, required: false }, // 新增欄位：期初庫存
+    期初庫存: { type: String, required: false }, 
 
 });
 
@@ -507,12 +507,7 @@ app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
 
 // 創建 HTTP 端點和 Socket.IO 伺服器
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: '*', // 確保允許来自特定源的請求
-    methods: ['GET', 'POST'],
-  },
-});
+const io = new Server(server);
 
 // Socket.IO 連接管理
 let onlineUsers = 0;  // 計數線上人數
