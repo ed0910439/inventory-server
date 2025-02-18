@@ -355,7 +355,7 @@ app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
 
             // 返回產品數據
             res.json(products);
-            res.status(200); 
+            res.status(100); 
 
         }
     } catch (error) {
