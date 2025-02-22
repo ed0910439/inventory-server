@@ -133,12 +133,16 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
         } else {
 
             const today = `${year}-${formattedMonth}-${day}`;
-            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
+            const collectionName = `${year}${formattedMonth}${storeName}_tmp`; // 根據年份、月份和門市生成集合名稱
             const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`; // 动态生成集合名称
             const Product = mongoose.model(collectionName, productSchema);
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
             // 抓取第一份 HTML 新資料
+
+            await Product.deleteMany();
+            console.log(`清空${collectionName}`);
+
             console.log(collectionName);
             console.log(lastCollectionName);
             console.log(`抓取 HTML 資料...`);
@@ -277,9 +281,13 @@ app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, re
         } else {
 
             const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const Product = mongoose.model(collectionName, productSchema);
+            const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`; // 暫存集合
 
+            const Product = mongoose.model(collectionName, productSchema);
+            const ProductTemp = mongoose.model(collectionTmpName, productSchema); // 暫存集合模型
+            
             const completedProducts = req.body;
+            const completedTmpProducts = await ProductTemp.find(); // 获取暂存区数据
 
             // 驗證每個產品是否包含必填字段
             const validProducts = completedProducts.map(product => ({
@@ -293,7 +301,10 @@ app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, re
 
             if (validProducts.length > 0) {
                 // 將完成的產品信息存入資料庫
+                await Product.insertMany(completedTmpProducts);
                 await Product.insertMany(validProducts);
+                await ProductTemp.deleteMany();
+
                 return res.status(201).json({ message: '所有新產品已成功保存' });
             } else {
                 return res.status(400).json({ message: '缺少必填字段，無法保存產品' });
@@ -327,12 +338,12 @@ app.get('/api/ping', (req, res) => {
 
     client.on('error', (err) => {
         console.error('Connection error:', err);
-        res.send({ connected: false });
+        res.send({ eposConnected: false });
     });
 
     client.on('timeout', () => {
         console.error('Connection timeout');
-        res.send({ connected: false });
+        res.send({ eposConnected: false });
     });
 });
 
