@@ -27,6 +27,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(helmet());
 app.enable('trust proxy');
+app.set('trust proxy', 1); // 1 是 'X-Forwarded-For' 的第一层代理
 
 /*// 設定 CSRF 保護
 const csrfProtection = csrf({ cookie: true });
@@ -48,11 +49,12 @@ app.use((err, req, res, next) => {
 app.use(cors({ origin: '*' })); // 或者使用 '*' 来允许所有来源
 
 // 配置 API 請求的速率限制，防止濫用
-const archiveLimiter = rateLimit({
+const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 分鐘窗口
     max: 100, // 每個 IP 15 分鐘內最多可以請求 100 次
+    message: '您發送請求的速度太快，麻煩您過五分鐘後再試！'
 });
-app.use('/api/', archiveLimiter); // 只對 API 請求應用 rate limit
+app.use('/api/', limiter); // 只對 API 請求應用 rate limit
 
 
 
@@ -124,7 +126,7 @@ console.log(lastYear, formattedLastMonth, day); // 輸出上個月份的年份�
 
 
 
-app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
+app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
 
     try {
@@ -271,7 +273,7 @@ app.get('/api/startInventory/:storeName', archiveLimiter, async (req, res) => {
     }
 });
 // API 端點：保存補齊的新品
-app.post('/api/saveCompletedProducts/:storeName', archiveLimiter, async (req, res) => {
+app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
 
     const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
@@ -348,12 +350,12 @@ app.get('/api/ping', (req, res) => {
 });
 
 
-app.get(`/api/products`, archiveLimiter, async (req, res) => {
+app.get(`/api/products`, limiter, async (req, res) => {
     return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
     });
 
 // 獲取產品數據的 API
-app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
+app.get(`/api/products/:storeName`, limiter, async (req, res) => {
     const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
@@ -377,7 +379,7 @@ app.get(`/api/products/:storeName`, archiveLimiter, async (req, res) => {
     
 });
 // 更新產品數量的 API 端點
-app.put('/api/products/:storeName/:productCode/quantity', archiveLimiter, async (req, res) => {
+app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, res) => {
         const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
@@ -412,7 +414,7 @@ app.put('/api/products/:storeName/:productCode/quantity', archiveLimiter, async 
 });
 
 // 更新產品到期日的 API 端點
-app.put('/api/products/:storeName/:productCode/expiryDate', archiveLimiter, async (req, res) => {
+app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
         const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
@@ -447,7 +449,7 @@ app.put('/api/products/:storeName/:productCode/expiryDate', archiveLimiter, asyn
 });
 
 // API 端點處理盤點歸檔請求
-app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
+app.post('/api/archive/:storeName', limiter, async (req, res) => {
     try {
         const storeName = req.params.storeName;
         const password = req.body.password;
@@ -486,7 +488,7 @@ app.post('/api/archive/:storeName', archiveLimiter, async (req, res) => {
     }
 });
 // 更新，根据商店名称清除库存数据
-app.post('/api/clear/:storeName', archiveLimiter, async (req, res) => {
+app.post('/api/clear/:storeName', limiter, async (req, res) => {
     try {
         const storeName = req.params.storeName; // 获取 URL 中的 storeName
         const password = req.body.password;
@@ -522,7 +524,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*', // 確保允許来自特定源的請求
-    methods: ['GET', 'POST','PUT'],
+    methods: ['GET', 'POST','PUT','OPTIONS'],
   },
 });
 
