@@ -528,6 +528,25 @@ app.post('/api/clear/:storeName', limiter, async (req, res) => {
     }
 });
 
+// 設定公告的 API 端點
+app.post('/api/announcement', limiter, async (req, res) => {
+    try {
+        const { message, storeName } = req.body; // 從請求中獲取公告內容和商店名稱
+
+        // 可選：添加數據有效性檢查
+        if (!message || !storeName) {
+            return res.status(400).json({ message: '公告內容和商店名稱都是必需的' });
+        }
+
+        // 廣播公告給特定商店房間
+        io.to(storeName).emit('newAnnouncement', { message, storeName });
+
+        res.status(200).json({ message: '公告發布成功' });
+    } catch (error) {
+        console.error('發布公告時出錯:', error);
+        res.status(500).json({ message: '伺服器錯誤' });
+    }
+});
 
 
 // 創建 HTTP 端點和 Socket.IO 伺服器
