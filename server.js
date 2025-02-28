@@ -355,7 +355,7 @@ app.get(`/api/products`, limiter, async (req, res) => {
     });
 
 // 獲取產品數據的 API
-app.get(`/api/products/:storeName`, limiter, async (req, res) => {
+app.get(`/api/products/:storeName`, async (req, res) => {
     const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
@@ -380,72 +380,83 @@ app.get(`/api/products/:storeName`, limiter, async (req, res) => {
 });
 // 更新產品數量的 API 端點
 app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, res) => {
-        const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
+    const Product = mongoose.model(collectionName, productSchema);
+
+    // 檢查商店名稱是否有效
+    if (storeName === 'notStart') {
+        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误
+    }
 
     try {
-        if (storeName === 'notStart') {
-            res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
-        } else {
+        const { productCode } = req.params;
+        const { 數量 } = req.body;
 
-            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const Product = mongoose.model(collectionName, productSchema);
-            const products = await Product.find(); // 獲取產品數據
-      const { productCode } = req.params;
-      const { 數量 } = req.body;
+        // 更新指定產品的數量
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 數量: 數量 },
+            { new: true }
+        );
 
-      // 更新指定產品的數量
-      const updatedProduct = await Product.findOneAndUpdate(
-          { 商品編號: productCode },
-          { 數量: 數量 },
-          { new: true }
-      );
+        if (!updatedProduct) {
+            return res.status(404).send('產品未找到');
+        }
 
-      if (!updatedProduct) {
-          return res.status(404).send('產品未找到');
-      }
-      // 廣播更新消息给所有用戶
-    io.to(storeName).emit('productUpdated', updatedProduct);
+        // 廣播更新消息给所有用戶
+io.to(storeName).emit('productUpdated', {
+    商品編號: updatedProduct.商品編號,
+        商品名稱: updatedProduct.商品名稱,
+                數量:updatedProduct.數量,
+          storeName: storeName, // 添加商店屬性
+        });
 
-      res.json(updatedProduct);
-  }} catch (error) {
-      console.error('更新產品時出錯:', error);
-      res.status(400).send('更新失敗');
-  }
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新產品時出錯:', error);
+        res.status(400).send('更新失敗');
+    }
 });
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
-        const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
+    const Product = mongoose.model(collectionName, productSchema);
+    
+    // 檢查商店名稱是否有效
+    if (storeName === 'notStart') {
+        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误
+    }
 
     try {
-        if (storeName === 'notStart') {
-            res.status(400).send('門市錯誤'); // 使用 400 Bad Request 返回错误，因為请求参數有误
-        } else {
+        const { productCode } = req.params;
+        const { 到期日 } = req.body;
 
-            const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
-            const Product = mongoose.model(collectionName, productSchema);
-            const products = await Product.find(); // 獲取產品數據
-      const { productCode } = req.params;
-      const { 到期日 } = req.body;
+        // 更新指定產品的到期日
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 到期日: 到期日 },
+            { new: true }
+        );
 
-      // 更新指定產品的到期日
-      const updatedProduct = await Product.findOneAndUpdate(
-          { 商品編號: productCode },
-          { 到期日: 到期日 },
-          { new: true }
-      );
+        if (!updatedProduct) {
+            return res.status(404).send('產品未找到');
+        }
 
-      if (!updatedProduct) {
-          return res.status(404).send('產品未找到');
-      }
-      // 廣播更新消息给所有用戶
-      io.to(storeName).emit('productUpdated', updatedProduct);
-      
-      res.json(updatedProduct);
-  }} catch (error) {
-      console.error('更新到期日時出錯:', error);
-      res.status(400).send('更新失敗');
-  }
+        // 廣播更新消息给所有用戶
+        io.to(storeName).emit('productUpdated', {
+            商品編號: updatedProduct.商品編號,
+            商品名稱: updatedProduct.商品名稱,
+            到期日: updatedProduct.到期日,
+            storeName: storeName // 添加商店屬性
+        });
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新到期日時出錯:', error);
+        res.status(400).send('更新失敗');
+    }
 });
 
 // API 端點處理盤點歸檔請求
@@ -524,7 +535,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*', // 確保允許来自特定源的請求
-    methods: ['GET', 'POST','PUT','OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
   },
 });
 
