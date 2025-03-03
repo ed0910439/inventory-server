@@ -562,15 +562,6 @@ io.on('connection', (socket) => {
   console.log('使用者上線。');
 
   // 當用戶加入房間時
-  socket.on('joinStoreRoom', (storeName) => {
-    socket.join(storeName); // socket.join 是用於讓用戶加入房間
-    console.log(`使用者加入商店房間：${storeName}`);
-    
-    // 您現在可以根據需要廣播消息到這個房間
-    // 比如廣播當前線上人數
-    const onlineUsers = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 獲取如今庫房中的用户數量
-    socket.to(storeName).emit('updateUserCount', onlineUsers); // 向其他在此房間的用戶發送當前人數
-  });
 
   socket.on('disconnect', () => {
     console.log('使用者離線。');
