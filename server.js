@@ -350,9 +350,7 @@ app.get('/api/ping', (req, res) => {
 });
 
 
-app.get(`/api/products`, limiter, async (req, res) => {
-    return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
-    });
+
 
 // 獲取產品數據的 API
 app.get(`/api/products`, async (req, res) => {
