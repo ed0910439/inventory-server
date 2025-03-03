@@ -127,7 +127,7 @@ console.log(lastYear, formattedLastMonth, day); // 輸出上個月份的年份�
 
 
 app.get('/api/startInventory', limiter, async (req, res) => {
-    const storeName = 'dcz18' || 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart'){
@@ -275,7 +275,7 @@ app.get('/api/startInventory', limiter, async (req, res) => {
 // API 端點：保存補齊的新品
 app.post('/api/saveCompletedProducts', limiter, async (req, res) => {
 
-    const storeName = 'dcz18'|| 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = 'dcz18'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -356,7 +356,7 @@ app.get(`/api/products`, limiter, async (req, res) => {
 
 // 獲取產品數據的 API
 app.get(`/api/products`, async (req, res) => {
-    const storeName = 'dcz18'|| 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = 'dcz18'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === '') {
@@ -380,7 +380,7 @@ app.get(`/api/products`, async (req, res) => {
 });
 // 更新產品數量的 API 端點
 app.put('/api/products/:productCode/quantity', limiter, async (req, res) => {
-    const storeName = 'dcz18' || 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
 
@@ -420,7 +420,7 @@ io.emit('productUpdated', {
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:productCode/expiryDate', limiter, async (req, res) => {
-    const storeName = 'dcz18' || 'notStart'; // 獲取 URL 中的 storeName
+    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
     
