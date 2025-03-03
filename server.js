@@ -126,8 +126,8 @@ console.log(lastYear, formattedLastMonth, day); // 輸出上個月份的年份�
 
 
 
-app.get('/api/startInventory', limiter, async (req, res) => {
-    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
+app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart'){
@@ -273,9 +273,9 @@ app.get('/api/startInventory', limiter, async (req, res) => {
     }
 });
 // API 端點：保存補齊的新品
-app.post('/api/saveCompletedProducts', limiter, async (req, res) => {
+app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
 
-    const storeName = 'dcz18'; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === 'notStart') {
@@ -350,11 +350,13 @@ app.get('/api/ping', (req, res) => {
 });
 
 
-
+app.get(`/api/products`, limiter, async (req, res) => {
+    return res.status(100).json({ message: '請選擇門市' }); // 當商店名稱未提供時回覆消息
+    });
 
 // 獲取產品數據的 API
-app.get(`/api/products`, async (req, res) => {
-    const storeName = 'dcz18'; // 獲取 URL 中的 storeName
+app.get(`/api/products/:storeName`, async (req, res) => {
+    const storeName = req.params.storeName|| 'notStart'; // 獲取 URL 中的 storeName
 
     try {
         if (storeName === '') {
@@ -377,8 +379,8 @@ app.get(`/api/products`, async (req, res) => {
     
 });
 // 更新產品數量的 API 端點
-app.put('/api/products/:productCode/quantity', limiter, async (req, res) => {
-    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
 
@@ -394,7 +396,7 @@ app.put('/api/products/:productCode/quantity', limiter, async (req, res) => {
         // 更新指定產品的數量
         const updatedProduct = await Product.findOneAndUpdate(
             { 商品編號: productCode },
-            { 數量: 數量 },
+            { 數量 },
             { new: true }
         );
 
@@ -403,11 +405,7 @@ app.put('/api/products/:productCode/quantity', limiter, async (req, res) => {
         }
 
         // 廣播更新消息给所有用戶
-io.emit('productUpdated', {
-    商品編號: updatedProduct.商品編號,
-        商品名稱: updatedProduct.商品名稱,
-                數量:updatedProduct.數量,
-        });
+        io.to(storeName).emit('productUpdated', updatedProduct);
 
         res.json(updatedProduct);
     } catch (error) {
@@ -417,8 +415,8 @@ io.emit('productUpdated', {
 });
 
 // 更新產品到期日的 API 端點
-app.put('/api/products/:productCode/expiryDate', limiter, async (req, res) => {
-    const storeName = 'dcz18' ; // 獲取 URL 中的 storeName
+app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
     
@@ -443,11 +441,8 @@ app.put('/api/products/:productCode/expiryDate', limiter, async (req, res) => {
         }
 
         // 廣播更新消息给所有用戶
-        io.emit('productUpdated', {
-            商品編號: updatedProduct.商品編號,
-            商品名稱: updatedProduct.商品名稱,
-            到期日: updatedProduct.到期日,
-        });
+        io.to(storeName).emit('productUpdated', updatedProduct);
+
         res.json(updatedProduct);
     } catch (error) {
         console.error('更新到期日時出錯:', error);
@@ -456,9 +451,9 @@ app.put('/api/products/:productCode/expiryDate', limiter, async (req, res) => {
 });
 
 // API 端點處理盤點歸檔請求
-app.post('/api/archive', limiter, async (req, res) => {
+app.post('/api/archive/:storeName', limiter, async (req, res) => {
     try {
-        const storeName = 'dcz18';
+        const storeName = req.params.storeName;
         const password = req.body.password;
         const adminPassword = process.env.ADMIN_PASSWORD;
 
@@ -495,9 +490,9 @@ app.post('/api/archive', limiter, async (req, res) => {
     }
 });
 // 更新，根据商店名称清除库存数据
-app.post('/api/clear', limiter, async (req, res) => {
+app.post('/api/clear/:storeName', limiter, async (req, res) => {
     try {
-        const storeName = 'dcz18'; // 获取 URL 中的 storeName
+        const storeName = req.params.storeName; // 获取 URL 中的 storeName
         const password = req.body.password;
         const adminPassword = process.env.ADMIN_PASSWORD;
         const decryptedPassword = CryptoJS.AES.decrypt(encryptedPassword, process.env.SECRET_KEY).toString(CryptoJS.enc.Utf8);
@@ -560,6 +555,15 @@ io.on('connection', (socket) => {
   console.log('使用者上線。');
 
   // 當用戶加入房間時
+  socket.on('joinStoreRoom', (storeName) => {
+    socket.join(storeName); // socket.join 是用於讓用戶加入房間
+    console.log(`使用者加入商店房間：${storeName}`);
+    
+    // 您現在可以根據需要廣播消息到這個房間
+    // 比如廣播當前線上人數
+    const onlineUsers = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 獲取如今庫房中的用户數量
+    socket.to(storeName).emit('updateUserCount', onlineUsers); // 向其他在此房間的用戶發送當前人數
+  });
 
   socket.on('disconnect', () => {
     console.log('使用者離線。');
