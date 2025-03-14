@@ -380,7 +380,7 @@ app.get(`/api/products/:storeName`, async (req, res) => {
 });
 // 更新產品數量的 API 端點
 app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, res) => {
-    const storeName = req.params.storeName ; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
 
@@ -390,7 +390,7 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
     }
 
     try {
-        const productCode = req.params.productCode;
+        const { productCode } = req.params;
         const { 數量 } = req.body;
 
         // 更新指定產品的數量
@@ -405,17 +405,18 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
         }
 
         // 廣播更新消息给所有用戶
-        io.to(storeName).emit('quantityUpdated', { productCode, quantity });
-        res.status(200).json({ message: '数量更新成功' });
+        io.to(storeName).emit('productUpdated', updatedProduct);
+
         res.json(updatedProduct);
     } catch (error) {
-        res.status(500).json({ message: '服务器错误' });
+        console.error('更新產品時出錯:', error);
+        res.status(400).send('更新失敗');
     }
 });
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
-    const storeName = req.params.storeName ; // 獲取 URL 中的 storeName
+    const storeName = req.params.storeName || 'notStart'; // 獲取 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市生成集合名稱
     const Product = mongoose.model(collectionName, productSchema);
     
@@ -425,7 +426,7 @@ app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req,
     }
 
     try {
-        const productCode = req.params.productCode;
+        const { productCode } = req.params;
         const { 到期日 } = req.body;
 
         // 更新指定產品的到期日
@@ -440,7 +441,7 @@ app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req,
         }
 
         // 廣播更新消息给所有用戶
-        io.to(storeName).emit('expiryDateUpdated', { productCode, expiryDate });
+        io.to(storeName).emit('productUpdated', updatedProduct);
 
         res.json(updatedProduct);
     } catch (error) {
