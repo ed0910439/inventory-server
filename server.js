@@ -13,18 +13,18 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 //const csrf = require('csurf');
 const bodyParser = require('body-parser');
-const morgan = require('morgan'); // 新增日誌中介
+//const morgan = require('morgan'); // 新增日誌中介
 
 require('dotenv').config();
 
 const app = express();
 
 // 中介配置
-app.use(morgan('combined')); // 使用 morgan 記錄 HTTP 請求
+//app.use(morgan('combined')); // 使用 morgan 記錄 HTTP 請求
 app.use(cookieParser());
 app.use(cors());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' })); // 更新這裡
+app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(helmet());
 app.enable('trust proxy');
 app.set('trust proxy', 1); // 1 是 'X-Forwarded-For' 的第一層代理
@@ -125,6 +125,18 @@ console.log(year, formattedMonth, day); // 輸出當前年份、月份、日期
 console.log(lastYear, formattedLastMonth, day); // 輸出上月份的年份、月份、日期
 
 
+app.get('/api/testInventoryTemplate/:storeName', (req, res) => {
+    const storeName = req.params.storeName;
+
+    // 返回用于测试的示例数据
+    const mockInventoryData = [
+        { 商品編號: '001', 商品名稱: '項目A', 規格: '', 廠商: '待設定', 庫別: '待設定' },
+        { 商品編號: '002', 商品名稱: '項目B', 規格: '', 廠商: '待設定', 庫別: '待設定' },
+        // 添加更多的模拟数据
+    ];
+
+    res.json(mockInventoryData);
+});
 
 app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
@@ -177,18 +189,21 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             const inventoryData = await sourceCollection.find({}).toArray(); // 取得來源集合資料
 
             // 處理最新的盤點數據
-            const refinedData = inventoryData.map(item => ({
-                商品編號: item.商品編號,
-                商品名稱: item.商品名稱,
-                規格: item.規格 || '',
-                數量: '', // 將數量設為空
-                單位: item.單位 || '',
-                到期日: '', // 將到期日設為空
-                廠商: item.廠商 || '',
-                庫別: item.庫別 || '',
-                盤點日期: '', // 將盤點日期設為空
-                期初庫存: item.數量 || '' // 將數量拷貝到期初庫存
-            }));
+            const refinedData = inventoryData.map((item) => {
+                const product = newProducts.find(p => p.商品編號 === item.商品編號) || {};
+                return {
+                    商品編號: item.商品編號,
+                    商品名稱: product.商品名稱 || '未知', // 若無商品名稱則設為 '未知'
+                    規格: product.規格 || item.規格 || '', // 若產品規格不存在，取 item.規格 或設為空
+                    數量: '', // 將數量設為空
+                    單位: item.單位 || '',
+                    到期日: '', // 將到期日設為空
+                    廠商: item.廠商 || '',
+                    庫別: product.商品名稱 && product.商品名稱.includes("停用") ? '未使用' : (item.庫別 || '待設定'), // 若商品名稱包含 "停用"，則設為 '未使用'
+                    盤點日期: '', // 將盤點日期設為空
+                    期初庫存: item.數量 || '無數據' // 將數量拷貝到期初庫存
+                };
+            });
             if (refinedData.length > 0) {
                 // 將完成的產品資訊存入資料庫
                 await Product.insertMany(refinedData);
@@ -300,12 +315,17 @@ app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
                 廠商: product.廠商 || '未使用', // 若未選擇，設為'未使用'
                 庫別: product.庫別 || '未使用', // 若未選擇，設為'未使用'
             }));
+            const allProducts = [...validProducts, ...completedTmpProducts];
 
-            if (validProducts.length > 0) {
-                // 將完成的產品資訊存入資料庫
-                await Product.insertMany(completedTmpProducts);
-                await Product.insertMany(validProducts);
-                await ProductTemp.deleteMany();
+            // 根据商品编号进行排序
+            allProducts.sort((a, b) => a.商品編號.localeCompare(b.商品編號));
+
+            if (allProducts.length > 0) {
+                // 將所有產品資訊存入資料庫
+                await Product.insertMany(allProducts);
+            
+                // 刪除整個暫存集合
+                await ProductTemp.collection.drop(); // 使用 drop() 方法刪除暫存集合
 
                 return res.status(201).json({ message: '所有新產品已成功保存' });
             } else {
@@ -356,10 +376,10 @@ app.get(`/api/products`, limiter, async (req, res) => {
 
 // 獲取產品數據的 API
 app.get(`/api/products/:storeName`, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+    const storeName = req.params.storeName || 'NA'; // 取得 URL 中的 storeName
 
     try {
-        if (storeName === '') {
+        if (storeName === 'NA') {
             res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤，因為請求參數有誤
         } else {
 
@@ -447,6 +467,33 @@ app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req,
     } catch (error) {
         console.error('更新到期日時出錯:', error);
         res.status(400).send('更新失敗');
+    }
+});
+
+app.put('/api/products/:storeName/batch-update', async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
+    const Product = mongoose.model(collectionName, productSchema); // 使用動態集合名稱
+    const message = '請將頁面重新整理以更新品項'
+    const inventoryItems = req.body; // 獲取請求中的數據
+
+    try {
+        // 使用 Promise.all 並行處理每個項目的更新
+        const updatePromises = inventoryItems.map(item => {
+            return Product.updateOne(
+                { 商品編號: item.商品編號 }, // 根據 '商品編號' 更新
+                { $set: { 庫別: item.庫別, 廠商: item.廠商 } }
+            );
+        });
+
+        // 等待所有更新完成
+        await Promise.all(updatePromises);
+        io.to(storeName).emit('newAnnouncement', { message, storeName });
+
+        res.status(200).send({ message: '更新成功' });
+    } catch (error) {
+        console.error('更新失敗:', error);
+        res.status(500).send({ message: '更新失敗', error: error.message });
     }
 });
 
@@ -546,8 +593,8 @@ const io = new Server(server, {
         origin: '*', // 確保允許來自特定來源的請求
         methods: ['GET', 'POST', 'PUT', 'OPTIONS'],
     },
+  
 });
-
 let onlineUsers = {}; // 儲存線上使用者和他們的房間
 
 io.on('connection', (socket) => {
@@ -556,7 +603,6 @@ io.on('connection', (socket) => {
     // 當使用者加入房間時
     socket.on('joinStoreRoom', (storeName) => {
         socket.join(storeName); // 讓使用者加入指定房間
-        console.log(`使用者加入商店房間：${storeName}`);
 
         // 更新線上使用者數量
         onlineUsers[storeName] = (onlineUsers[storeName] || 0) + 1;
@@ -564,12 +610,32 @@ io.on('connection', (socket) => {
         // 廣播目前線上人數
         const currentUserCount = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 目前房間使用者數
         socket.to(storeName).emit('updateUserCount', currentUserCount); // 傳送目前人數
+        console.log(`使用者加入商店房間：${storeName}，當前人數：${currentUserCount}。`);
     });
 
-    socket.on('disconnect', () => {
+    // 當用戶離開時
+    socket.on('leaveStoreRoom', () => {
         console.log('用戶離線。');
 
         // 尋找使用者目前所在的房間
+        const rooms = Object.keys(socket.rooms);
+        rooms.forEach((room) => {
+            if (onlineUsers[room]) {
+                onlineUsers[room] -= 1; // 減少對應房間的線上使用者數
+                // 若房間內無線上使用者, 可以選擇刪除房間訊息
+                if (onlineUsers[room] <= 0) {
+                    delete onlineUsers[room];
+                } else {
+                    socket.to(room).emit('updateUserCount', onlineUsers[room]); // 廣播更新後的線上人數
+                }
+            }
+            console.log(`使用者離開商店房間：${room}，當前人數：${onlineUsers[room] || 0}。`);
+        });
+    });
+
+    // 偵測用戶斷開連接
+    socket.on('disconnect', () => {
+        console.log('用戶已斷開連接。');
         const rooms = Object.keys(socket.rooms);
         rooms.forEach((room) => {
             if (onlineUsers[room]) {
