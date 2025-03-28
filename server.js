@@ -68,6 +68,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 // 定義產品模型
 // 初始化 Express 應用後
 const productSchema = new mongoose.Schema({
+    停用: { type: Boolean, required: true },
     商品編號: { type: String, required: true },
     商品名稱: { type: String, required: false },
     規格: { type: String, required: false },
@@ -130,8 +131,8 @@ app.get('/api/testInventoryTemplate/:storeName', (req, res) => {
 
     // 返回用于测试的示例数据
     const mockInventoryData = [
-        { 商品編號: '001', 商品名稱: '項目A', 規格: '', 廠商: '待設定', 庫別: '待設定' },
-        { 商品編號: '002', 商品名稱: '項目B', 規格: '', 廠商: '待設定', 庫別: '待設定' },
+        { 停用: 'ture', 商品編號: '001', 商品名稱: '項目A', 規格: '', 廠商: '待設定', 庫別: '待設定' },
+        { 停用: 'false', 商品編號: '002', 商品名稱: '項目B', 規格: '', 廠商: '待設定', 庫別: '待設定' },
         // 添加更多的模拟数据
     ];
 
@@ -192,13 +193,14 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             const refinedData = inventoryData.map((item) => {
                 const product = newProducts.find(p => p.商品編號 === item.商品編號) || {};
                 return {
+                    停用: product.商品名稱 && product.商品名稱.includes("停用") ? true : (item.停用 || false),
                     商品編號: item.商品編號,
                     商品名稱: product.商品名稱 || '未知', // 若無商品名稱則設為 '未知'
                     規格: product.規格 || item.規格 || '', // 若產品規格不存在，取 item.規格 或設為空
                     數量: '', // 將數量設為空
                     單位: item.單位 || '',
                     到期日: '', // 將到期日設為空
-                    廠商: item.廠商 || '',
+                    廠商: product.商品編號 && product.商品編號.includes("KO", "KL") ? '王座(用)' : product.商品編號 && product.商品編號.includes("KM") ? '央廚' : (item.廠商 || '待設定'),
                     庫別: product.商品名稱 && product.商品名稱.includes("停用") ? '未使用' : (item.庫別 || '待設定'), // 若商品名稱包含 "停用"，則設為 '未使用'
                     盤點日期: '', // 將盤點日期設為空
                     期初庫存: item.數量 || '無數據' // 將數量拷貝到期初庫存
@@ -213,8 +215,9 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             const inventoryMap = {};
             inventoryData.forEach(item => {
                 inventoryMap[item.商品編號] = {
-                    庫別: item.庫別 || '待設定', // 如果沒有則標記為待設置
-                    廠商: item.廠商 || '',
+                    停用: item.商品名稱 && item.商品名稱.includes("停用") ? true : (item.停用 || false),
+                    庫別: item.商品名稱 && item.商品名稱.includes("停用") ? '未使用' : (item.庫別 || '待設定'), // 若商品名稱包含 "停用"，則設為 '未使用'
+                    廠商: item.商品編號 && item.商品編號.includes("KO", "KL") ? '王座(用)' : item.商品編號 && item.商品編號.includes("KM") ? '央廚' : (item.廠商 || '待設定'),
                     期初庫存: item.數量 || '無紀錄' // 將數量重新命名為期初庫存
                 };
             });
@@ -224,12 +227,16 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                 const sourceData = inventoryMap[product.商品編號]; // 透過商品編號取得對應資料
                 if (sourceData) {
                     // 填入庫別
-                    product.庫別 = sourceData.庫別;
-                    product.廠商 = sourceData.廠商;
+                    product.停用 = sourceData.停用 || product.商品名稱 && product.商品名稱.includes("停用") ? true : false ;
+                    product.庫別 = sourceData.庫別 || product.商品名稱 && product.商品名稱.includes("停用") ? '未使用' : '待設定';
+                    product.廠商 = sourceData.廠商 || product.商品編號 && product.商品編號.includes("KO", "KL") ? '王座(用)' : product.商品編號 && product.商品編號.includes("KM") ? '央廚' : '待設定';
                     product.期初庫存 = sourceData.期初庫存; // 將數量欄位重新命名為初始庫存
                 } else {
                     // 如果沒有找到符合的商品編號，設定庫別為待設置
-                    product.庫別 = '待設定';
+                    product.停用 = product.商品名稱 && product.商品名稱.includes("停用") ? true : false;
+                    product.庫別 = product.商品名稱 && product.商品名稱.includes("停用") ? '未使用' : '待設定';
+                    product.廠商 = product.商品編號 && product.商品編號.includes("KO", "KL") ? '王座(用)' : product.商品編號 && product.商品編號.includes("KM") ? '央廚' : '待設定';// 若商品名稱包含 "停用"，則設為 '未使用'
+
                 }
                 return product; // 傳回更新後的產品對象
             });
@@ -308,6 +315,7 @@ app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
 
             // 驗證每個產品是否包含必填字段
             const validProducts = completedProducts.map(product => ({
+                停用: product.庫別 && product.庫別.includes("未使用") ? true : (product.停用 || false),
                 商品編號: product.商品編號,
                 商品名稱: product.商品名稱,
                 規格: product.規格,
@@ -433,6 +441,42 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
         res.status(400).send('更新失敗');
     }
 });
+// 更新產品停用的 API 端點
+app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
+    const Product = mongoose.model(collectionName, productSchema);
+
+    // 檢查商店名稱是否有效
+    if (storeName === 'notStart') {
+        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤
+    }
+
+    try {
+        const { productCode } = req.params;
+        const { 停用 } = req.body;
+
+        // 更新指定產品的數量
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 停用 },
+            { new: true }
+        );
+
+        if (!updatedProduct) {
+            return res.status(404).send('產品未找到');
+        }
+        if (停用 === true) {
+            io.to(storeName).emit('productDepotUpdatedV', updatedProduct);
+        } else {
+            io.to(storeName).emit('productDepotUpdatedX', updatedProduct);
+        }
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新產品時出錯:', error);
+        res.status(400).send('更新失敗');
+    }
+});
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
@@ -461,7 +505,7 @@ app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req,
         }
 
         // 廣播更新訊息給所有用戶
-        io.to(storeName).emit('productUpdated', updatedProduct);
+        io.to(storeName).emit('productExpiryDateUpdated', updatedProduct);
 
         res.json(updatedProduct);
     } catch (error) {
