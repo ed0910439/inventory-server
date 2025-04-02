@@ -11,6 +11,7 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const morgan = require('morgan'); // 引入 morgan
 //const csrf = require('csurf');
 const bodyParser = require('body-parser');
 //const morgan = require('morgan'); // 新增日誌中介
@@ -28,6 +29,7 @@ app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 app.use(helmet());
 app.enable('trust proxy');
 app.set('trust proxy', 1); // 1 是 'X-Forwarded-For' 的第一層代理
+app.use(morgan('tiny')); 
 
 /*// 設定 CSRF 保護
 const csrfProtection = csrf({ cookie: true });
