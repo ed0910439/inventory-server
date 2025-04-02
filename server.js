@@ -526,7 +526,7 @@ app.put('/api/products/:storeName/batch-update', async (req, res) => {
         const updatePromises = inventoryItems.map(item => {
             return Product.updateOne(
                 { 商品編號: item.商品編號 }, // 根據 '商品編號' 更新
-                { $set: { 庫別: item.庫別, 廠商: item.廠商 , 停用:false }
+                { $set: { 庫別: item.庫別, 廠商: item.廠商, 停用: false } }
             );
         });
 
