@@ -445,40 +445,45 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
 });
 // 更新產品停用的 API 端點
 app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
-    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
+    const storeName = req.params.storeName || 'notStart'; // 从URL中获取storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 生成数据库集合名称
     const Product = mongoose.model(collectionName, productSchema);
 
-    // 檢查商店名稱是否有效
+    // 检查商店名称是否有效
     if (storeName === 'notStart') {
-        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤
+        return res.status(400).send('門市錯誤'); // 返回 400 Bad Request
     }
 
     try {
-        const { productCode } = req.params;
-        const { 停用 } = req.body;
+        const { productCode } = req.params; // 从 URL 中获取 productCode
+        const { 停用 } = req.body; // 从请求体中获取停用状态
 
-        // 更新指定產品的數量
+        // 更新指定产品的停用状态
         const updatedProduct = await Product.findOneAndUpdate(
-            { 商品編號: productCode },
-            { 停用 },
-            { new: true }
+            { 商品編號: productCode }, // 查找产品
+            { 停用 }, // 更新产品的停用状态
+            { new: true, runValidators: true } // 返回更新后的文档并运行验证
         );
 
         if (!updatedProduct) {
-            return res.status(404).send('產品未找到');
+            return res.status(404).send('產品未找到'); // 如果未找到产品
         }
+
+        // 根据停用状态广播信息
         if (停用 === true) {
             io.to(storeName).emit('productDepotUpdatedV', updatedProduct);
         } else {
             io.to(storeName).emit('productDepotUpdatedX', updatedProduct);
         }
+
+        // 返回更新后的产品信息
         res.json(updatedProduct);
     } catch (error) {
         console.error('更新產品時出錯:', error);
-        res.status(400).send('更新失敗');
+        res.status(400).send('更新失敗'); // 返回400错误
     }
 });
+
 
 // 更新產品到期日的 API 端點
 app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
