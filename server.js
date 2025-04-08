@@ -457,7 +457,7 @@ app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res)
     try {
         const { productCode } = req.params;
         const { 停用 } = req.body;
-
+        const storeRoom = req.params.storeName;
         // 更新指定產品的數量
         const updatedProduct = await Product.findOneAndUpdate(
             { 商品編號: productCode },
@@ -469,9 +469,9 @@ app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res)
             return res.status(404).send('產品未找到');
         }
         if (停用 === true) {
-            io.to(storeName).emit('productDepotUpdatedV', updatedProduct, storeName);
+            io.to(storeName).emit('productDepotUpdatedV', updatedProduct, storeRoom);
         } else {
-            io.to(storeName).emit('productDepotUpdatedX', updatedProduct, storeName);
+            io.to(storeName).emit('productDepotUpdatedX', updatedProduct, storeRoom);
         }
         res.json(updatedProduct);
     } catch (error) {
