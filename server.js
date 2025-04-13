@@ -151,8 +151,10 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
 
             const today = `${year}-${formattedMonth}-${day}`;
             const collectionName = `${year}${formattedMonth}${storeName}_tmp`; // 根據年份、月份和門市產生集合名稱
+            const newCollectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
             const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`; // 動態產生集合名稱
             const Product = mongoose.model(collectionName, productSchema);
+            const NewProduct = mongoose.model(newCollectionName, productSchema);
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
             // 抓取第一份 HTML 新資料
@@ -278,19 +280,22 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                 }
             });
 
-            // 傳回所有庫別為「待設定」的新品項，等待使用者填寫
+            // 傳回所有庫別為「待設定」新品項，等待使用者填寫
             const pendingProducts = updatedProducts.filter(product => product.庫別 === '待設定');
 
             if (pendingProducts.length > 0) {
-                return res.json(pendingProducts); // 傳回待使用者填寫的產品資訊
+                return res.status(201).json(pendingProducts); // 傳回待使用者填寫的產品資訊
             } else {
-                console.log('沒有待設定的產品項目');
-                return res.status(200).json({ message: '沒有待設定的產品項目' });
+                // 沒有待設定產品，直接儲存到資料庫
+                await NewProduct.insertMany(updatedProducts);
+                await Product.collection.drop(); // 使用 drop() 方法刪除暫存集合
+
+                return res.status(200).json({ message: '所有商品已成功寫入資料庫' });
             }
         }
 
     } catch (error) {
-        console.error('處理開始盤點請求時發生錯誤:', error);
+        console.error('建立盤點資料庫時發生錯誤:', error);
         if (!res.headersSent) {
             return res.status(500).json({ message: '處理請求時發生錯誤', error: error.message });
         }
