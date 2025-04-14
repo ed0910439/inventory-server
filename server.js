@@ -121,6 +121,7 @@ if (day <= 15) {
 }
 
 // 格式化月份為兩位數
+const urlFormattedMonth = String(currentDate.getMonth() +1 ).padStart(2, '0');
 const formattedMonth = String(month).padStart(2, '0');
 const formattedLastMonth = String(lastMonth).padStart(2, '0'); // 轉換成1-12格式
 
@@ -149,7 +150,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             res.status(204).send('尚未選擇門市'); // 使用 204，
         } else {
 
-            const today = `${year}-${formattedMonth}-${day}`;
+            const today = `${year}-${urlFormattedMonth}-${day}`;
             const collectionName = `${year}${formattedMonth}${storeName}_tmp`; // 根據年份、月份和門市產生集合名稱
             const newCollectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
             const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`; // 動態產生集合名稱
@@ -158,6 +159,8 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
             const secondUrl = process.env.SECOND_URL;
             // 抓取第一份 HTML 新資料
+            console.log(firstUrl);
+            console.log(secondUrl);
 
             await Product.deleteMany();
             console.log(`清空${collectionName}`);
@@ -239,7 +242,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                     // 如果沒有找到符合的商品編號，設定庫別為待設置
                     product.停用 = product.商品名稱 && product.商品名稱.includes("停用") ? true : false;
                     product.庫別 = product.商品名稱 && product.商品名稱.includes("停用") ? '未使用' : '待設定';
-                    product.廠商 = product.商品編號 && product.商品編號.includes("KO", "KL") ? '王座(用)' : product.商品編號 && product.商品編號.includes("KM") ? '央廚' : '待設定';// 若商品名稱包含 "停用"，則設為 '未使用'
+                    product.廠商 = product.商品編號 && product.商品編號.includes("KO", "KL") ? '王座(用)' : product.商品編號 && product.商品編號.includes("KM") ? '央廚' : product.商品名稱 && product.商品名稱.includes("全台") ? '全台' : '待設定';// 若商品名稱包含 "停用"，則設為 '未使用'
 
                 }
                 return product; // 傳回更新後的產品對象
@@ -259,7 +262,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                 if (row.length > 3) {
                     const product = {
                         商品編號: row[0] || '未知',
-                        單位: row[3] || '未設定',
+                        單位: row[3] || '',
                     };
                     if (product.商品編號 && product.單位) {
                         secondInventoryData.push(product); // 將有效的產品加入到清單中
@@ -283,15 +286,18 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             // 傳回所有庫別為「待設定」新品項，等待使用者填寫
             const pendingProducts = updatedProducts.filter(product => product.庫別 === '待設定');
 
-            if (pendingProducts.length > 0) {
-                return res.status(201).json(pendingProducts); // 傳回待使用者填寫的產品資訊
-            } else {
-                // 沒有待設定產品，直接儲存到資料庫
-                await NewProduct.insertMany(updatedProducts);
-                await Product.collection.drop(); // 使用 drop() 方法刪除暫存集合
+            if (pendingProducts.length === 0) {
+                // 沒有待設定產品
+                const completedNewProducts = await Product.find(); // 取得暫存區數據
+                completedNewProducts.sort((a, b) => a.商品編號.localeCompare(b.商品編號));
+                await NewProduct.insertMany(completedNewProducts);
 
-                return res.status(200).json({ message: '所有商品已成功寫入資料庫' });
+                // 刪除整個暫存集合
+                await Product.collection.drop(); // 使用 drop() 方法刪除暫存集合                
             }
+
+            return res.json(pendingProducts); // 傳回待使用者填寫的產品資訊
+
         }
 
     } catch (error) {
