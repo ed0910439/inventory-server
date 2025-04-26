@@ -74,7 +74,7 @@ const productSchema = new mongoose.Schema({
     商品編號: { type: String, required: true },
     商品名稱: { type: String, required: false },
     規格: { type: String, required: false },
-    數量: { type: Number, rquired: false },
+    數量: { type: String, rquired: false },
     單位: { type: String, required: false },
     到期日: { type: String, required: false },
     廠商: { type: String, required: false },
@@ -212,7 +212,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                     商品編號: htmlProduct.商品編號,
                     商品名稱: htmlProduct.商品名稱,
                     規格: lastMonthData?.規格 || '',
-                    數量: '',
+                    數量: '請輸入數量',
                     單位: '', // 暫不處理
                     到期日: '',
                     廠商: lastMonthData?.廠商 || (htmlProduct.商品編號.includes('KO') || htmlProduct.商品編號.includes('KL') ? '王座(用)' : htmlProduct.商品編號.includes('KM') ? '央廚' : '待設定'),
