@@ -509,6 +509,77 @@ app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req,
     }
 });
 
+// 更新產品廠商 API 端點
+app.put('/api/products/:storeName/:productCode/vendor', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
+    const Product = mongoose.model(collectionName, productSchema);
+
+    // 檢查商店名稱是否有效
+    if (storeName === 'notStart') {
+        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤
+    }
+
+    try {
+        const { productCode } = req.params;
+        const { 廠商 } = req.body;
+
+        // 更新指定產品的廠商
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 廠商 },
+            { new: true }
+        );
+
+        if (!updatedProduct) {
+            return res.status(404).send('產品未找到');
+        }
+
+        // 廣播更新訊息給所有用戶
+        io.to(storeName).emit('productVendorUpdated', updatedProduct);
+
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新到期日時出錯:', error);
+        res.status(400).send('更新失敗');
+    }
+});
+// 更新產品庫別 API 端點
+app.put('/api/products/:storeName/:productCode/layer', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
+    const Product = mongoose.model(collectionName, productSchema);
+
+    // 檢查商店名稱是否有效
+    if (storeName === 'notStart') {
+        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤
+    }
+
+    try {
+        const { productCode } = req.params;
+        const { 庫別 } = req.body;
+
+        // 更新指定產品的庫別
+        const updatedProduct = await Product.findOneAndUpdate(
+            { 商品編號: productCode },
+            { 庫別 },
+            { new: true }
+        );
+
+        if (!updatedProduct) {
+            return res.status(404).send('產品未找到');
+        }
+
+        // 廣播更新訊息給所有用戶
+        io.to(storeName).emit('productLayerUpdated', updatedProduct);
+
+        res.json(updatedProduct);
+    } catch (error) {
+        console.error('更新到期日時出錯:', error);
+        res.status(400).send('更新失敗');
+    }
+});
+
 app.put('/api/products/:storeName/batch-update', async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合名稱
