@@ -5,6 +5,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const fs = require('fs');
 const multer = require('multer');
+const xml2js = require('xml2js');
 
 const path = require('path');
 const http = require('http');
@@ -18,8 +19,8 @@ const morgan = require('morgan'); // 引入 morgan
 const bodyParser = require('body-parser');
 //const morgan = require('morgan'); // 新增日誌中介
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+
+const upload = multer({ storage: multer.memoryStorage() }); // 使用內存存儲，方便直接獲取buffer
 
 require('dotenv').config();
 
@@ -358,71 +359,150 @@ app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
 
 // 新的 API 端點，處理上傳的 Excel 檔案
 app.post('/api/uploadInventory/:storeName', upload.single('inventoryFile'), async (req, res) => {
+    console.log('接收的請求:', req.body); // 打印請求體
+    console.log('請求文件:', req.file); // 打印上傳的文件
     const storeName = req.params.storeName;
     if (!req.file) {
         return res.status(400).json({ message: '請上傳 Excel 檔案' });
     }
 
-    try {
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(req.file.buffer);
-        const worksheet = workbook.getWorksheet(1); // 假設資料在第一個工作表
+    // 獲取上傳的文件名稱
+    const uploadedFileName = req.file.originalname;
+    console.log('上傳的文件名:', uploadedFileName);
+try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(req.file.buffer);
 
-        if (!worksheet || worksheet.rowCount < 2) {
-            return res.status(400).json({ message: 'Excel 檔案格式不正確，缺少資料或標題列' });
+    const worksheet = workbook.getWorksheet('總表');
+    if (!worksheet) {
+        return res.status(400).json({ message: '工作表「總表」不存在' });
+    }
+
+    const data = [];
+    worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber > 2) { // 從第三行開始讀取資料
+        const rowData = row.values.slice(1); // 去掉第一個空項
+        for (let col = 0; col < rowData.length; col++) {
+            const cellValue = rowData[col];
+
+            // 檢查cellValue是否是對象，並提取文本
+            if (cellValue && typeof cellValue === 'object' && cellValue.richText) {
+                // 這裡假設您只需要元件中的text部分
+                rowData[col] = cellValue.richText.map(item => item.text).join(''); // 將所有文本合併
+            } else {
+                rowData[col] = String(cellValue || ''); // 其他情況下，轉為字串
+            }
+        }
+        data.push(rowData); // 存儲處理過的數據
+        }
+    });
+            const collectionName = `${year}${formattedMonth}${storeName}`;
+        const Product = mongoose.model(collectionName, productSchema);
+    const bulkOps = []; // 初始化bulkOps數組
+      bulkOps.push({
+    updateMany: {
+      filter: {}, // 匹配所有文檔
+      update: { $set: { 本月報價: 0 } },
+    },
+  });
+    // 更新數據
+    const rows = data; // 如果data已包含所有行，則可以直接操作
+    rows.forEach(row => {
+        const 品號 = String(row[0] || ''); // 假設品號在第1列 (1-based index)
+bulkOps.push({
+    updateOne: {
+        filter: { 品號: String(row[0] || '') }, // 確保品號是字串
+        update: {
+            $set: {
+                廠商: String(row[1]||'未知'),            // 第2欄
+                規格: String(row[3]||'未知'),            // 第4欄
+                盤點單位: String(row[4]||'未知'),        // 第5欄
+                本月報價: parseFloat(row[5]) || 0, // 第6欄
+                進貨單位: String(row[8]||'未知'),        // 第9欄
+            },
+        },
+        upsert: false, // 如果品號不存在則不新增
+    },
+});
+
+    });
+
+    // 如果bulkOps有數據，則進行資料庫更新
+    if (bulkOps.length > 0) {
+        const result = await Product.bulkWrite(bulkOps);
+        res.status(200).json({ message: `成功更新 ${result.modifiedCount} 筆資料` });
+    } else {
+        res.status(200).json({ message: '沒有找到可更新的品號' });
+    }
+} catch (error) {
+    console.error('處理 Excel 檔案時發生錯誤:', error);
+    res.status(500).json({ message: '處理檔案時發生錯誤', error: error.message });
+}
+});
+
+
+// 新的 API 端點，處理上傳的本月進貨量 Excel 檔案
+app.post('/api/uploadMonthlyPurchase/:storeName', upload.single('monthlyPurchaseFile'), async (req, res) => {
+    const storeName = req.params.storeName;
+          const collectionName = `${year}${formattedMonth}${storeName}`;
+        const Product = mongoose.model(collectionName, productSchema);
+    if (!req.file) {
+        return res.status(400).json({ message: '請上傳本月進貨量文件' });
+    }
+
+    try {
+        const parser = new xml2js.Parser();
+        const result = await parser.parseStringPromise(req.file.buffer.toString('utf-8'));
+
+        const worksheet = result.Workbook.Worksheet[0].Table[0].Row;
+
+        if (!worksheet || worksheet.length < 1) {
+            return res.status(400).json({ message: 'XML 檔案格式不正確，缺少資料' });
         }
 
-        const headers = worksheet.getRow(2).values.map(header => String(header).trim());
-        const data = [];
-
-        worksheet.eachRow((row, rowNumber) => {
-            if (rowNumber > 2) { // 從第三列開始讀取資料
-                const rowData = {};
-                row.eachCell((cell, colNumber) => {
-                    rowData[headers[colNumber - 1]] = cell.value;
-                });
-                data.push(rowData);
-            }
-        });
-
-        const collectionName = `${year}${formattedMonth}${storeName}`;
-        const Product = mongoose.model(collectionName, productSchema);
         const bulkOps = [];
+        bulkOps.push({
+            updateMany: {
+              filter: {}, // 匹配所有文檔
+              update: { $set: { 本月進貨: 0 } },
+            },
+          });
+        // 從第二行開始讀取數據，忽略最後的合計行
+        for (let i = 1; i < worksheet.length - 1; i++) {
+            const rowData = worksheet[i].Cell.map(cell => (cell.Data ? cell.Data[0]._ : '')); // 提取每行的數據
+            
+            const productCode = rowData[2]; // 第三欄是商品編碼
+            const receivedQuantity = rowData[9]; // 第九欄是驗收數量
 
-        for (const item of data) {
-            if (item['品號']) {
+            if (typeof productCode === 'string') {
+                const trimmedProductCode = productCode.trim();
+
                 bulkOps.push({
                     updateOne: {
-                        filter: { 品號: item['品號'] },
-                        update: {
-                            $set: {
-                                廠商: item['廠商'] || '',
-                                品名: item['品名'] || '',
-                                規格: item['規格'] || '',
-                                盤點單位: item['盤點單位'] || '',
-                                本月報價: item['本月報價'] || '',
-                                進貨單位: item['進貨單位'] || '',
-                                // 您可以根據需要加入其他欄位的映射
-                            },
-                        },
-                        upsert: false, // 如果品號不存在則不新增
+                        filter: { 品號: trimmedProductCode },
+                        update: { $set: { 本月進貨: parseFloat(receivedQuantity) || 0 } },
+                        upsert: true,
                     },
                 });
+            } else {
+                console.warn(`無效的商品編碼：${productCode}`);
             }
         }
 
+        // 執行批量更新操作
         if (bulkOps.length > 0) {
             const result = await Product.bulkWrite(bulkOps);
-            res.status(200).json({ message: `成功更新 ${result.modifiedCount} 筆資料` });
+            res.status(200).json({ message: `成功更新 ${result.modifiedCount} 筆本月進貨量` });
         } else {
-            res.status(200).json({ message: '沒有找到可更新的品號' });
+            res.status(200).json({ message: '沒有找到可更新的商品編碼' });
         }
 
     } catch (error) {
-        console.error('處理 Excel 檔案時發生錯誤:', error);
+        console.error('處理本月進貨量 XML 檔案時發生錯誤:', error);
         res.status(500).json({ message: '處理檔案時發生錯誤', error: error.message });
     }
 });
+
 // API端點: 檢查伺服器內部狀況
 app.get('/api/checkConnections', (req, res) => {
     // 檢查服務器內部狀況，假設這裡始終有效
