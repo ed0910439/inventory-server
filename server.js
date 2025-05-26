@@ -590,7 +590,7 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
         }
 
         // 廣播更新訊息給所有用戶
-        io.to(storeName).emit('productUpdated', updatedProduct);
+        io.to(storeName).emit('productUpdated', updatedProduct, storeRoom);
 
         res.json(updatedProduct);
     } catch (error) {
