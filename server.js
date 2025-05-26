@@ -517,7 +517,7 @@ app.get('/api/ping', (req, res) => {
     const client = new net.Socket();
     client.setTimeout(5000);
 
-    client.connect(443, 'google.com', () => {
+    client.connect(8090, 'epos.kingza.com.tw', () => {
         // 連線成功
         res.status(200).json({ eposConnected: true });
         client.destroy();
