@@ -577,6 +577,7 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
     try {
         const { productCode } = req.params;
         const { 期末盤點 } = req.body;
+        const storeRoom = req.params.storeName;
 
         // 更新指定產品的數量
         const updatedProduct = await Product.findOneAndUpdate(
