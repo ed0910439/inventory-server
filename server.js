@@ -227,8 +227,8 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                     品號: htmlProduct.品號,
                     品名: htmlProduct.品名,
                     規格: lastMonthData?.規格 || '',
-                    期末盤點: '請輸入數量',
-                    盤點單位: '', // 暫不處理
+                    期末盤點: '',
+                    盤點單位: lastMonthData?.盤點單位 || '', // 暫不處理
                     保存期限: '',
                     廠商: lastMonthData?.廠商 || (htmlProduct.品號.includes('KO') || htmlProduct.品號.includes('KL') ? '王座(用)' : htmlProduct.品號.includes('KM') ? '央廚' : '待設定'),
                     庫別: lastMonthData?.庫別 || (lastMonthData?.停用 ? '未使用' : is停用InHtml ? '未使用' : '待設定'),
