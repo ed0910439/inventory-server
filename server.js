@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const fs = require('fs');
 const multer = require('multer');
 const xml2js = require('xml2js');
-
+const net = require('net');
 const path = require('path');
 const http = require('http');
 const ExcelJS = require('exceljs');
@@ -83,12 +83,13 @@ const productSchema = new mongoose.Schema({
     規格: { type: String, required: false },
     盤點單位: { type: String, required: false },
     本月報價: { type: String, required: false },
-    盤點單位: { type: String, required: false },
     保存期限: { type: String, required: false },
     本月進貨: { type: String, required: false },
     進貨單位: { type: String, required: false },
-    期初盤點: { type: String, required: false },
-    期末盤點: { type: String, rquired: false },
+    期初盤點: { type: Number, required: false },
+    盤點量1: { type: Number, default: undefined },
+    盤點量2: { type: Number, default: undefined },
+    期末盤點: { type: String, required: false },
     調出: { type: String, required: false },
     調入: { type: String, required: false },
     本月使用量: { type: Number, required: false },
@@ -143,6 +144,7 @@ const formattedLastMonth = String(lastMonth).padStart(2, '0'); // 轉換成1-12�
 console.log(year, formattedMonth, day); // 輸出當前年份、月份、日期
 console.log(lastYear, formattedLastMonth, day); // 輸出上月份的年份、月份、日期
 
+const currentlyEditingProductsByStore = {};
 
 app.get('/api/testInventoryTemplate/:storeName', (req, res) => {
     const storeName = req.params.storeName;
@@ -510,7 +512,6 @@ app.get('/api/checkConnections', (req, res) => {
 });
 
 
-const net = require('net');
 
 // API 端點: 檢查EPOS伺服器內部狀況
 app.get('/api/ping', (req, res) => {
@@ -563,40 +564,116 @@ app.get(`/api/products/:storeName`, async (req, res) => {
     }
 
 });
-// 更新產品數量的 API 端點
-app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
+// 更新產品數量1的 API 端點
+app.put('/api/products/:storeName/:productCode/quantity1', limiter, async (req, res) => {
+    const { storeName, productCode } = req.params;
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合品名
     const Product = mongoose.model(collectionName, productSchema);
+    const storeRoom = req.params.storeName;
 
-    // 檢查商店品名是否有效
-    if (storeName === 'notStart') {
-        return res.status(400).send('門市錯誤'); // 使用 400 Bad Request 回傳錯誤
+    const { 盤點量1 } = req.body; // 從請求體中獲取期末盤點
+
+    if (typeof 盤點量1 === 'undefined' || 盤點量1 === null) {
+        return res.status(400).json({ message: '期末盤點數量是必需的' });
     }
 
     try {
-        const { productCode } = req.params;
-        const { 期末盤點 } = req.body;
-        const storeRoom = req.params.storeName;
-
-        // 更新指定產品的數量
-        const updatedProduct = await Product.findOneAndUpdate(
+        let updatedProduct = await Product.findOneAndUpdate(
             { 品號: productCode },
-            { 期末盤點 },
-            { new: true }
+            { $set: { 盤點量1: 盤點量1 } }, // 使用 $set 操作符確保只更新這個字段
+            { new: true } // 返回更新後的文檔
         );
 
         if (!updatedProduct) {
-            return res.status(404).send('產品未找到');
+            return res.status(404).json({ message: '產品未找到或門市名稱不匹配' });
         }
 
-        // 廣播更新訊息給所有用戶
-        io.to(storeName).emit('productUpdated', updatedProduct, storeRoom);
+        // 計算新的期末盤點 (合計值)
+        const new期末盤點 = (updatedProduct.盤點量1 || 0) + (updatedProduct.盤點量2 || 0);
 
-        res.json(updatedProduct);
+        // 將新的期末盤點更新回資料庫
+        updatedProduct = await Product.findOneAndUpdate(
+            { 品號: productCode },
+            { $set: { 期末盤點: new期末盤點 } },
+            { new: true } // 再次返回更新後的文檔，確保包含最新的期末盤點
+        );
+
+        if (!updatedProduct) {
+            // 這應該不太可能發生，因為上一步已經找到並更新了
+            return res.status(404).json({ message: '更新期末盤點失敗，產品未找到' });
+        }
+
+        // 廣播更新訊息給所有用戶，現在 updatedProduct 包含了最新的 期末盤點 (合計值)
+        if (typeof io !== 'undefined') { // 確保 io 存在
+            io.to(storeName).emit('productUpdated', updatedProduct, storeRoom);
+        }
+        if (currentlyEditingProductsByStore[storeName] && currentlyEditingProductsByStore[storeName][productCode]) {
+            delete currentlyEditingProductsByStore[storeName][productCode];
+            // 廣播此產品的編輯狀態已停止
+            io.to(storeName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+            console.log(`產品 ${productCode} 在門市 ${storeName} 的編輯狀態已在後端清除。`);
+        }
+
+        res.status(200).json(updatedProduct);
     } catch (error) {
-        console.error('更新產品時出錯:', error);
-        res.status(400).send('更新失敗');
+        console.error(`更新產品 ${productCode} 的盤點量1時發生錯誤:`, error);
+        res.status(500).json({ message: '伺服器錯誤，無法更新盤點量1的數量' });
+    }
+});
+// 更新產品數量2的 API 端點
+app.put('/api/products/:storeName/:productCode/quantity2', limiter, async (req, res) => {
+    const { storeName, productCode } = req.params;
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合品名
+    const Product = mongoose.model(collectionName, productSchema);
+    const storeRoom = req.params.storeName;
+
+    const { 盤點量2 } = req.body; // 從請求體中獲取期末盤點
+
+    if (typeof 盤點量2 === 'undefined' || 盤點量2 === null) {
+        return res.status(400).json({ message: '期末盤點數量是必需的' });
+    }
+
+    try {
+        let updatedProduct = await Product.findOneAndUpdate(
+            { 品號: productCode },
+            { $set: { 盤點量2: 盤點量2 } }, // 使用 $set 操作符確保只更新這個字段
+            { new: true } // 返回更新後的文檔
+        );
+
+        if (!updatedProduct) {
+            return res.status(404).json({ message: '產品未找到或門市名稱不匹配' });
+        }
+
+        // 計算新的期末盤點 (合計值)
+        const new期末盤點 = (updatedProduct.盤點量1 || 0) + (updatedProduct.盤點量2 || 0);
+
+        // 將新的期末盤點更新回資料庫
+        updatedProduct = await Product.findOneAndUpdate(
+            { 品號: productCode },
+            { $set: { 期末盤點: new期末盤點 } },
+            { new: true } // 再次返回更新後的文檔，確保包含最新的期末盤點
+        );
+
+        if (!updatedProduct) {
+            // 這應該不太可能發生，因為上一步已經找到並更新了
+            return res.status(404).json({ message: '更新期末盤點失敗，產品未找到' });
+        }
+
+        // 廣播更新訊息給所有用戶，現在 updatedProduct 包含了最新的 期末盤點 (合計值)
+        if (typeof io !== 'undefined') { // 確保 io 存在
+            io.to(storeName).emit('productUpdated', updatedProduct, storeRoom);
+        }
+        if (currentlyEditingProductsByStore[storeName] && currentlyEditingProductsByStore[storeName][productCode]) {
+            delete currentlyEditingProductsByStore[storeName][productCode];
+            // 廣播此產品的編輯狀態已停止
+            io.to(storeName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+            console.log(`產品 ${productCode} 在門市 ${storeName} 的編輯狀態已在後端清除。`);
+        }
+
+        res.status(200).json(updatedProduct);
+    } catch (error) {
+        console.error(`更新產品 ${productCode} 的盤點量2時發生錯誤:`, error);
+        res.status(500).json({ message: '伺服器錯誤，無法更新盤點量2的數量' });
     }
 });
 // 更新產品停用的 API 端點
@@ -868,61 +945,121 @@ const io = new Server(server, {
     },
   
 });
-let onlineUsers = {}; // 儲存線上使用者和他們的房間
-
+const onlineUsers = {}; // 保持您現有的在線用戶計數
+// Socket.io 連接處理
 io.on('connection', (socket) => {
-    console.log('用戶上線。');
+    console.log(`用戶連接: ${socket.id}`);
 
-    // 當使用者加入房間時
+    // 用戶加入商店房間
     socket.on('joinStoreRoom', (storeName) => {
-        socket.join(storeName); // 讓使用者加入指定房間
-
-        // 更新線上使用者數量
-        onlineUsers[storeName] = (onlineUsers[storeName] || 0) + 1;
-
-        // 廣播目前線上人數
-        const currentUserCount = io.sockets.adapter.rooms.get(storeName)?.size || 0; // 目前房間使用者數
-        socket.to(storeName).emit('updateUserCount', currentUserCount); // 傳送目前人數
-        console.log(`使用者加入商店房間：${storeName}，當前人數：${currentUserCount}。`);
-    });
-
-    // 當用戶離開時
-    socket.on('leaveStoreRoom', () => {
-        console.log('用戶離線。');
-
-        // 尋找使用者目前所在的房間
-        const rooms = Object.keys(socket.rooms);
-        rooms.forEach((room) => {
-            if (onlineUsers[room]) {
-                onlineUsers[room] -= 1; // 減少對應房間的線上使用者數
-                // 若房間內無線上使用者, 可以選擇刪除房間訊息
-                if (onlineUsers[room] <= 0) {
-                    delete onlineUsers[room];
-                } else {
-                    socket.to(room).emit('updateUserCount', onlineUsers[room]); // 廣播更新後的線上人數
+        let currentStoreName = socket.data.storeName;
+        if (currentStoreName && currentStoreName !== storeName) {
+            // 如果用戶從其他房間切換過來，先離開舊房間
+            socket.leave(currentStoreName);
+            console.log(`使用者 ${socket.id} 離開商店房間：${currentStoreName}`);
+            // 清除該用戶在舊房間的編輯狀態
+            if (currentlyEditingProductsByStore[currentStoreName]) {
+                for (const productCode in currentlyEditingProductsByStore[currentStoreName]) {
+                    if (currentlyEditingProductsByStore[currentStoreName][productCode].by === socket.id) {
+                        delete currentlyEditingProductsByStore[currentStoreName][productCode];
+                        // 廣播此產品的編輯狀態已停止
+                        io.to(currentStoreName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+                        console.log(`用戶 ${socket.id} 在離開房間時，清除產品 ${productCode} 的編輯狀態。`);
+                    }
                 }
             }
-            console.log(`使用者離開商店房間：${room}，當前人數：${onlineUsers[room] || 0}。`);
-        });
+        }
+
+        socket.join(storeName);
+        socket.data.storeName = storeName; // 儲存當前房間名稱
+        console.log(`使用者 ${socket.id} 加入商店房間：${storeName}，當前人數：${io.sockets.adapter.rooms.get(storeName)?.size || 0}。`);
+
+        // 發送當前所有正在編輯的產品狀態給新加入的客戶端
+        if (currentlyEditingProductsByStore[storeName]) {
+            socket.emit('currentEditingState', currentlyEditingProductsByStore[storeName]);
+        }
+        // 更新房間人數
+        io.to(storeName).emit('updateUserCount', io.sockets.adapter.rooms.get(storeName)?.size || 0);
     });
 
-    // 偵測用戶斷開連接
-    socket.on('disconnect', () => {
-        console.log('用戶已斷開連接。');
-        const rooms = Object.keys(socket.rooms);
-        rooms.forEach((room) => {
-            if (onlineUsers[room]) {
-                onlineUsers[room] -= 1; // 減少對應房間的線上使用者數
-                // 若房間內無線上使用者, 可以選擇刪除房間訊息
-                if (onlineUsers[room] <= 0) {
-                    delete onlineUsers[room];
-                } else {
-                    socket.to(room).emit('updateUserCount', onlineUsers[room]); // 廣播更新後的線上人數
-                }
-            }
-        });
+    // 監聽產品開始編輯事件
+    socket.on('startEditingProduct', ({ productCode, storeName, quantityType }) => { // <--- 這裡必須有 quantityType
+        if (!currentlyEditingProductsByStore[storeName]) {
+            currentlyEditingProductsByStore[storeName] = {};
+    }
+    // 儲存編輯狀態，包含編輯類型
+    currentlyEditingProductsByStore[storeName][productCode] = {
+        by: socket.id,
+        timestamp: Date.now(),
+        editingType: quantityType // 保存編輯的類型 (quantity1 或 quantity2)
+    };
+    // 廣播編輯狀態更新，包含編輯類型
+    io.to(storeName).emit('productEditingStateUpdate', {
+        productCode,
+        status: 'editing',
+        by: socket.id,
+        editingType: quantityType // 傳遞編輯類型給前端
     });
+    console.log(`廣播產品 ${productCode} 的 ${quantityType} 編輯狀態開始，由 ${socket.id} 編輯`);
 });
+
+    socket.on('stopEditingProduct', ({ productCode, storeName, quantityType }) => { // 接收 quantityType
+        if (currentlyEditingProductsByStore[storeName] &&
+            currentlyEditingProductsByStore[storeName][productCode] &&
+            currentlyEditingProductsByStore[storeName][productCode].by === socket.id &&
+            currentlyEditingProductsByStore[storeName][productCode].editingType === quantityType // 也要匹配類型
+        ) {
+            delete currentlyEditingProductsByStore[storeName][productCode];
+            // 廣播停止編輯狀態，這裡 status 為 'idle'，不需要傳遞 editingType，因為整個產品的編輯狀態都清除了
+            io.to(storeName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+            console.log(`廣播產品 ${productCode} 的 ${quantityType} 編輯狀態停止，由 ${socket.id} 停止`);
+        }
+    });
+
+
+    // 處理斷開連接
+    socket.on('disconnect', () => {
+        console.log(`用戶斷開: ${socket.id}`);
+
+        let currentStoreName = socket.data.storeName;
+            if (currentStoreName && currentlyEditingProductsByStore[currentStoreName]) {
+        for (const productCode in currentlyEditingProductsByStore[currentStoreName]) {
+            // 注意：這裡斷開連接時，我們不能判斷是哪個 quantityType，
+            // 只能清除該用戶編輯的所有產品編輯狀態。
+            // 由於一個產品可能只有一個編輯鎖定，所以直接清除即可
+            if (currentlyEditingProductsByStore[currentStoreName][productCode].by === socket.id) {
+                console.log(`用戶 ${socket.id} 斷開連接時，清除產品 ${productCode} 的編輯狀態。`);
+                delete currentlyEditingProductsByStore[currentStoreName][productCode];
+                io.to(currentStoreName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+            }
+        }
+
+        
+            // 更新離線用戶的在線人數（如果需要）
+            onlineUsers[currentStoreName] = (onlineUsers[currentStoreName] || 1) - 1;
+            io.to(currentStoreName).emit('updateUserCount', io.sockets.adapter.rooms.get(currentStoreName)?.size || 0);
+            console.log(`使用者 ${socket.id} 離開商店房間：${currentStoreName}，當前人數：${io.sockets.adapter.rooms.get(currentStoreName)?.size || 0}。`);
+        }
+    });
+
+    // 定時器檢查並清除過期的編輯狀態
+    // 這個定時器需要在每個 storeName 下獨立檢查
+    setInterval(() => {
+        const fiveMinutesAgo = Date.now() - (5 * 60 * 1000); // 5 分鐘前
+        for (const storeName in currentlyEditingProductsByStore) {
+            const storeEditingProducts = currentlyEditingProductsByStore[storeName];
+            for (const productCode in storeEditingProducts) {
+                // 無需檢查 editingType，只要過期就清除
+                if (storeEditingProducts[productCode].timestamp < fiveMinutesAgo) {
+                    console.log(`自動清除產品 ${productCode} 在門市 ${storeName} 的過期編輯狀態`);
+                    delete storeEditingProducts[productCode];
+                    io.to(storeName).emit('productEditingStateUpdate', { productCode, status: 'idle' });
+                }
+            }
+        }
+    }, 30 * 1000); // 每 30 秒檢查一次
+});
+
 // 起動伺服器
 const PORT = process.env.PORT || 4000
 server.listen(PORT, () => {
