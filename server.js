@@ -54,7 +54,6 @@ app.use((err, req, res, next) => {
  // 處理其他錯誤
  return res.status(500).json({ error: 'Something went wrong' });
 });*/
-app.use(cors({ origin: '*' })); // 或使用 '*' 來允許所有來源
 
 // 配置 API 請求的速率限制，防止濫用
 const limiter = rateLimit({
