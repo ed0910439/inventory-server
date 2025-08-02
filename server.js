@@ -590,7 +590,12 @@ app.get('/api/negativeUsageItems/:storeName', async (req, res) => {
         // 只返回品名和計算值
         const result = items.map(item => ({
             品名: item.品名,
-            本月用量: item.本月進貨 + item.期初盤點 + item.調入 - item.期末盤點
+            本月進貨: item.本月進貨,
+            期初盤點: item.期初盤點,
+            期末盤點: item.期末盤點,
+            調入: item.調入,
+            本月使用量: item.本月進貨 + item.期初盤點 + item.調入 - item.期末盤點
+
         }));
 
         res.json(result);
