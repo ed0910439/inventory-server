@@ -20,6 +20,8 @@ const bodyParser = require('body-parser');
 //const morgan = require('morgan'); // 新增日誌中介
 const XLSX = require('xlsx');
 const e = require('cors');
+const { type } = require('os');
+const { error } = require('console');
 
 
 const upload = multer({ storage: multer.memoryStorage() }); // 使用內存存儲，方便直接獲取buffer
@@ -693,14 +695,25 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
                 updatedProduct.期末盤點;
 
            // 如果本月用量為負數，廣播警告訊息給前端
+            const productName = updatedProduct.品名;
+
             if (monthlyUsage < 0) {
                 // 從更新後的產品中取得商品名稱
-                const productName = updatedProduct.商品名稱;
                 // 建立包含商品名稱的警告訊息
                 const alertMessage = `產品 ${productName} 的本月用量為負數，請檢查！`;
                 
                 // 廣播訊息，包含商品名稱
                 io.to(storeName).emit('negativeUsageAlert', {
+                    type: error,
+                    message: alertMessage,
+                    productName: productName // 將 productCode 替換為 productName
+                });
+            }else if(monthlyUsage >300){
+                const alertMessage = `產品 ${productName} 的本月用量過高，請檢查月末盤點量！`;
+
+                // 廣播訊息，包含商品名稱
+                io.to(storeName).emit('negativeUsageAlert', {
+                    type: info,
                     message: alertMessage,
                     productName: productName // 將 productCode 替換為 productName
                 });
