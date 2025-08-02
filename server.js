@@ -694,11 +694,11 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
 
             // 如果本月用量為負數，廣播警告訊息給前端
             if (monthlyUsage < 0) {
-                const alertMessage = `產品 ${productCode} 的本月用量為負數，請檢查！`;
+                const alertMessage = `產品 ${updatedProduct.商品名稱} 的本月用量為負數，請檢查！`;
                 // 使用一個新的事件名稱 'negativeUsageAlert'
                 io.to(storeName).emit('negativeUsageAlert', {
                     message: alertMessage,
-                    productCode: productCode
+                    
                 });
             }
         }
