@@ -692,17 +692,20 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
                 updatedProduct.調入 - 
                 updatedProduct.期末盤點;
 
-            // 如果本月用量為負數，廣播警告訊息給前端
+           // 如果本月用量為負數，廣播警告訊息給前端
             if (monthlyUsage < 0) {
-                const alertMessage = `產品 ${productCode} 的本月用量為負數，請檢查！`;
-                // 使用一個新的事件名稱 'negativeUsageAlert'
+                // 從更新後的產品中取得商品名稱
+                const productName = updatedProduct.商品名稱;
+                // 建立包含商品名稱的警告訊息
+                const alertMessage = `產品 ${productName} 的本月用量為負數，請檢查！`;
+                
+                // 廣播訊息，包含商品名稱
                 io.to(storeName).emit('negativeUsageAlert', {
                     message: alertMessage,
-                    productCode: productCode
+                    productName: productName // 將 productCode 替換為 productName
                 });
             }
         }
-
         // 廣播更新訊息給所有用戶
         io.to(storeName).emit('productUpdated', updatedProduct, storeRoom);
 
