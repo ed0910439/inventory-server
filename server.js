@@ -171,133 +171,118 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
     try {
         if (storeName === 'notStart') {
             return res.status(204).send('尚未選擇門市'); // 使用 204
-        } else {
+        } 
+
             const today = `${year}-${urlFormattedMonth}-${day}`;
+            const lastDayOfMonth = new Date(year, formattedMonth, 0).getDate();
+            const tdate = `${year}-${urlFormattedMonth}-${lastDayOfMonth}`;
+
             const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`; // <-- 確保這一行存在且在正確的位置
             const collectionName = `${year}${formattedMonth}${storeName}`;
             const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`;
 
             const ProductTemp = mongoose.model(collectionTmpName, productSchema);
             const Product = mongoose.model(collectionName, productSchema);
+            
+            
             const Products = await Product.find({});
             if (Products.length > 0) {
                 console.error('當月已開立盤點單，無法再次建立！', error);
                 return res.status(500).json({ message: '當月已有建立盤點單，請依照下方指示操作後，再操作一次！', error: '選右上方選單>盤點結束>輸入密碼>勾選注意事項>盤點清除' });
-            } else {
-                const firstUrl = process.env.FIRST_URL.replace('${today}', today); // 替換 URL 中的變數
-                const secondUrl = process.env.SECOND_URL;
-                console.log('第一份 HTML URL:', firstUrl);
-                console.log('第二份 HTML URL:', secondUrl);
+            } 
+            
+        await ProductTemp.deleteMany(); // 清空暫存集合
 
-                await ProductTemp.deleteMany(); // 清空暫存集合
-                console.log(`已清空暫存集合: ${collectionTmpName}`);
-                console.log('當月暫存集合品名:', collectionTmpName);
-                console.log('上個月集合品名:', lastCollectionName);
-                console.log('開始抓取 HTML 資料...');
+        // --- 從新 API 抓取數據 ---
+        const apiUrl = "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/FindInventoryData";
+        const payload = {
+            Str_No: storeName,
+            Tdate: tdate,
+            BrandNo: "004"
+        };
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) throw new Error(`API 回傳錯誤: ${response.status}`);
+        const result = await response.json();
+        const newProductsFromApi = [];
 
-                const firstResponse = await axios.get(firstUrl);
-                const firstHtml = firstResponse.data;
-                const $first = cheerio.load(firstHtml);
-
-                const newProductsFromHtml = [];
-                $first('table tr').each((i, el) => {
-                    if (i === 0) return; // 忽略表頭
-                    const row = $first(el).find('td').map((j, cell) => $first(cell).text().trim()).get();
-
-                    if (row.length > 3) {
-                        const product = {
-                            模板名稱: row[1],
-                            品號: row[9],
-                            品名: row[10],
-                            規格: row[11],
-                        };
-                        if (product.模板名稱 === '段純貞' && product.品號) { // 確保有品號
-                            newProductsFromHtml.push(product); // 只保存有效的段純貞產品
-                        }
-                    }
+        if (result.returnCode === "200" && result.data?.length > 0) {
+            result.data.forEach(item => {
+                newProductsFromApi.push({
+                    品號: item.Goo_No,
+                    品名: item.Goo_Na,
+                    規格: item.Memo,
+                    盤點單位: item.Unit
                 });
-                console.log(`從第一個資料來源抓取到 ${newProductsFromHtml.length} 個段純貞產品`);
-
-                // 取得上個月的盤點資料並建立品號索引
-                let lastMonthInventory = [];
-                const lastMonthInventoryMap = new Map();
-                try {
-                    const sourceCollection = mongoose.connection.collection(lastCollectionName);
-                    lastMonthInventory = await sourceCollection.find({}).toArray(); // 取得上個月集合所有資料
-                    lastMonthInventory.forEach(item => lastMonthInventoryMap.set(item.品號, item));
-                    console.log(`成功取得上個月盤點資料，共 ${lastMonthInventory.length} 筆`);
-                } catch (error) {
-                    console.warn(`無法找到上個月的盤點集合: ${lastCollectionName}，將視為首次盤點。`);
-                    lastMonthInventory = []; // 如果上個月集合不存在，視為空陣列
-                }
-
-                let productsNeedingSetup = []; // 儲存需要前端設定的產品
-                let allProductsToInsertIntoTemp = []; // 儲存所有需要插入暫存集合的產品
-
-                newProductsFromHtml.forEach(htmlProduct => {
-                    let currentProduct = { ...htmlProduct }; // 複製一份，避免直接修改原始數據
-
-                    const lastMonthProduct = lastMonthInventoryMap.get(htmlProduct.品號);
-
-                    if (lastMonthProduct) {
-                        // 如果產品在上次盤點資料中存在，則繼承庫別、廠商等數據
-                        currentProduct.規格 = lastMonthProduct.規格;
-                        currentProduct.庫別 = lastMonthProduct.庫別;
-                        currentProduct.廠商 = lastMonthProduct.廠商;
-                        currentProduct.停用 = lastMonthProduct.停用;
-                        currentProduct.盤點單位 = lastMonthProduct.盤點單位;
-                        currentProduct.本月報價 = '';
-                        currentProduct.保存期限 = '';
-                        currentProduct.本月進貨 = '';
-                        currentProduct.進貨單位 = lastMonthProduct.進貨單位;
-                        currentProduct.期初盤點 = lastMonthProduct.期末盤點;
-                        currentProduct.盤點量1 = '';
-                        currentProduct.盤點量2 = '';
-                        currentProduct.期末盤點 = ''; // 清空盤點量
-                        currentProduct.調出 = '';
-                        currentProduct.調入 = '';
-                        currentProduct.本月使用量 = '';
-                        currentProduct.本月食材成本 = '';
-                        currentProduct.本月萬元用量 = '';
-                        currentProduct.週用量 = '';
-                        currentProduct.盤點日期 = today; // 確保盤點日期為當天
-                    } else {
-                        // 如果是新抓取的產品（新品），則庫別預設為 "待設定"
-                        currentProduct.庫別 = '待設定';
-                        currentProduct.盤點單位 = ''; // 預設清空
-                        currentProduct.停用 = false;  // 預設為不停用（即前端應該勾選）
-
-                        // 自動辨識廠商邏輯
-                        if (currentProduct.品號 && (currentProduct.品號.includes('KO') || currentProduct.品號.includes('KL'))) {
-                            currentProduct.廠商 = '王座(用)';
-                        } else if (currentProduct.品名 && (currentProduct.品名.includes('半成品') || currentProduct.品名.includes('全台'))) {
-                            currentProduct.廠商 = '央廚';
-                        } else {
-                            currentProduct.廠商 = '待設定';
-                        }
-                        productsNeedingSetup.push(currentProduct); // 將這些需要設定的產品放入獨立列表
-                    }
-                    allProductsToInsertIntoTemp.push(currentProduct); // 不論是否需要設定，都添加到這個列表
-                });
-
-                // 批量插入所有產品到暫存集合
-                if (allProductsToInsertIntoTemp.length > 0) {
-                    await ProductTemp.insertMany(allProductsToInsertIntoTemp);
-                    console.log(`已將 ${allProductsToInsertIntoTemp.length} 個產品存入暫存集合: ${collectionTmpName}`);
-                }
-
-                // 檢查是否有需要前端設定的產品
-                if (productsNeedingSetup.length > 0) {
-                    console.log(`有 ${productsNeedingSetup.length} 個產品需要前端設定庫別。`);
-                    return res.json(productsNeedingSetup);
-                } else {
-                    await Product.deleteMany({}); // 清空正式集合
-                    await Product.insertMany(allProductsToInsertIntoTemp); // 將暫存集合數據直接寫入正式集合
-                    await ProductTemp.collection.drop(); // 刪除暫存集合
-                    return res.status(201).json({ message: '所有產品已自動保存並更新正式庫存' });
-                }
-            }
+            });
         }
+
+        // --- 取得上個月盤點資料 ---
+        let lastMonthInventory = [];
+        const lastMonthInventoryMap = new Map();
+        try {
+            const sourceCollection = mongoose.connection.collection(lastCollectionName);
+            lastMonthInventory = await sourceCollection.find({}).toArray();
+            lastMonthInventory.forEach(item => lastMonthInventoryMap.set(item.品號, item));
+        } catch (error) {
+            lastMonthInventory = [];
+        }
+
+        // --- 處理資料 ---
+        let productsNeedingSetup = [];
+        let allProductsToInsertIntoTemp = [];
+
+        newProductsFromApi.forEach(apiProduct => {
+            let currentProduct = { ...apiProduct };
+            const lastMonthProduct = lastMonthInventoryMap.get(apiProduct.品號);
+
+            if (lastMonthProduct) {
+                // 繼承上月資料
+                currentProduct.規格 = lastMonthProduct.規格;
+                currentProduct.庫別 = lastMonthProduct.庫別;
+                currentProduct.廠商 = lastMonthProduct.廠商;
+                currentProduct.停用 = lastMonthProduct.停用;
+                currentProduct.盤點單位 = lastMonthProduct.盤點單位;
+                currentProduct.期初盤點 = lastMonthProduct.期末盤點;
+                currentProduct.期末盤點 = '';
+                currentProduct.盤點日期 = today;
+            } else {
+                // 新產品
+                currentProduct.庫別 = '待設定';
+                currentProduct.停用 = false;
+                currentProduct.盤點單位 = currentProduct.盤點單位 || '';
+                // 自動判斷廠商
+                if (currentProduct.品號?.includes('KO') || currentProduct.品號?.includes('KL')) {
+                    currentProduct.廠商 = '王座(用)';
+                } else if (currentProduct.品名?.includes('半成品') || currentProduct.品名?.includes('全台')) {
+                    currentProduct.廠商 = '央廚';
+                } else {
+                    currentProduct.廠商 = '待設定';
+                }
+                productsNeedingSetup.push(currentProduct);
+            }
+
+            allProductsToInsertIntoTemp.push(currentProduct);
+        });
+
+        // 批量插入暫存集合
+        if (allProductsToInsertIntoTemp.length > 0) {
+            await ProductTemp.insertMany(allProductsToInsertIntoTemp);
+        }
+
+        // 檢查是否有需要前端設定的產品
+        if (productsNeedingSetup.length > 0) {
+            return res.json(productsNeedingSetup);
+        } else {
+            await Product.deleteMany({});
+            await Product.insertMany(allProductsToInsertIntoTemp);
+            await ProductTemp.collection.drop();
+            return res.status(201).json({ message: '所有產品已自動保存並更新正式庫存' });
+        }
+
     } catch (error) {
         console.error('建立盤點資料庫時發生錯誤:', error);
         return res.status(500).json({ message: '建立盤點資料庫失敗', error: error.message });
