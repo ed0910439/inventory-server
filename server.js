@@ -200,6 +200,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             Tdate: tdate,
             BrandNo: "004"
         };
+        
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -599,26 +600,48 @@ app.get('/api/checkConnections', (req, res) => {
 
 
 
-// API 端點: 檢查EPOS伺服器內部狀況
-app.get('/api/ping', (req, res) => {
-    const client = new net.Socket();
-    client.setTimeout(5000);
+// API 端點: 檢查 kingzaap 伺服器狀態
+app.get('/api/ping', async (req, res) => {
+    const url = 'https://kingzaap.unium.com.tw/BohWeb/';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 設定 5 秒超時
 
-    client.connect(8090, 'epos.kingza.com.tw', () => {
-        // 連線成功
-        res.status(200).json({ eposConnected: true });
-        client.destroy();
-    });
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            signal: controller.signal // 使用 AbortController 處理超時
+        });
 
-    client.on('error', (err) => {
-        console.error('Connection error:', err);
-        res.send({ eposConnected: false });
-    });
+        clearTimeout(timeoutId);
 
-    client.on('timeout', () => {
-        console.error('Connection timeout');
-        res.send({ eposConnected: false });
-    });
+        // 如果 HTTP 狀態碼在 200-299 之間，則視為成功
+        if (response.ok) {
+            console.log('Kingzaap 伺服器連線成功');
+            res.status(200).json({ KingzaapConnected: true });
+        } else {
+            console.error(`Kingzaap 伺服器回應錯誤狀態碼: ${response.status}`);
+            res.status(response.status).json({
+                KingzaapConnected: false,
+                message: `伺服器回應狀態碼: ${response.status}`
+            });
+        }
+    } catch (error) {
+        clearTimeout(timeoutId);
+
+        let errorMessage = '連線失敗';
+        if (error.name === 'AbortError') {
+            errorMessage = '連線超時，無法連線至 Kingzaap 伺服器';
+        } else if (error.code === 'ENOTFOUND') {
+            errorMessage = 'DNS 解析錯誤，無法找到 Kingzaap 伺服器';
+        } else {
+            errorMessage = `連線錯誤: ${error.message}`;
+        }
+        console.error(errorMessage);
+        res.status(500).json({
+            KingzaapConnected: false,
+            message: errorMessage
+        });
+    }
 });
 
 
