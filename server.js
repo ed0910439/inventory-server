@@ -24,11 +24,11 @@ const { type } = require('os');
 const { error } = require('console');
 
 
+const app = express();
 const upload = multer({ storage: multer.memoryStorage() }); // 使用內存存儲，方便直接獲取buffer
 
 require('dotenv').config();
 
-const app = express();
 
 // 中介配置
 //app.use(morgan('combined')); // 使用 morgan 記錄 HTTP 請求
@@ -165,51 +165,51 @@ app.get('/api/testInventoryTemplate/:storeName', (req, res) => {
     res.json(mockInventoryData);
 });
 
-app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
 
+app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
+    const storeName = req.params.storeName || 'notStart';
     try {
         if (storeName === 'notStart') {
-            return res.status(204).send('尚未選擇門市'); // 使用 204
-        } 
+            return res.status(204).send('尚未選擇門市');
+        }
 
-            const today = `${year}-${urlFormattedMonth}-${day}`;
-            const lastDayOfMonth = new Date(year, formattedMonth, 0).getDate();
-            const tdate = `${year}-${urlFormattedMonth}-${lastDayOfMonth}`;
+        const today = `${year}-${urlFormattedMonth}-${day}`;
+        const lastDayOfMonth = new Date(year, formattedMonth, 0).getDate();
+        const tdate = `${year}-${urlFormattedMonth}-${lastDayOfMonth}`;
 
-            const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`; // <-- 確保這一行存在且在正確的位置
-            const collectionName = `${year}${formattedMonth}${storeName}`;
-            const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`;
+        const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`;
+        const collectionName = `${year}${formattedMonth}${storeName}`;
+        const lastCollectionName = `${lastYear}${formattedLastMonth}${storeName}`;
+        const lastCollectionDemo = `${lastYear}${formattedLastMonth}dc03021`;
 
-            const ProductTemp = mongoose.model(collectionTmpName, productSchema);
-            const Product = mongoose.model(collectionName, productSchema);
-            
-            
-            const Products = await Product.find({});
-            if (Products.length > 0) {
-                console.error('當月已開立盤點單，無法再次建立！', error);
-                return res.status(500).json({ message: '當月已有建立盤點單，請依照下方指示操作後，再操作一次！', error: '選右上方選單>盤點結束>輸入密碼>勾選注意事項>盤點清除' });
-            } 
-            
+        // 動態 model 避免 OverwriteModelError
+        const ProductTemp = mongoose.models[collectionTmpName] || mongoose.model(collectionTmpName, productSchema);
+        const Product = mongoose.models[collectionName] || mongoose.model(collectionName, productSchema);
+
+        const Products = await Product.find({});
+        if (Products.length > 0) {
+            return res.status(500).json({
+                message: '當月已有建立盤點單，請依照下方指示操作後，再操作一次！',
+                error: '選右上方選單>盤點結束>輸入密碼>勾選注意事項>盤點清除'
+            });
+        }
+
         await ProductTemp.deleteMany(); // 清空暫存集合
 
         // --- 從新 API 抓取數據 ---
         const apiUrl = "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/FindInventoryData";
-        const payload = {
-            Str_No: storeName,
-            Tdate: tdate,
-            BrandNo: "004"
-        };
-        
+        const payload = { Str_No: storeName, Tdate: tdate, BrandNo: "004" };
+
         const response = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+
         if (!response.ok) throw new Error(`API 回傳錯誤: ${response.status}`);
         const result = await response.json();
-        const newProductsFromApi = [];
 
+        const newProductsFromApi = [];
         if (result.returnCode === "200" && result.data?.length > 0) {
             result.data.forEach(item => {
                 newProductsFromApi.push({
@@ -221,16 +221,23 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             });
         }
 
-        // --- 取得上個月盤點資料 ---
+        // --- 取得上個月盤點資料（無資料套用 DEMO） ---
         let lastMonthInventory = [];
         const lastMonthInventoryMap = new Map();
-        try {
+
+        const collections = await mongoose.connection.db.listCollections({ name: lastCollectionName }).toArray();
+        if (collections.length > 0) {
+            // 上個月有正式 collection
             const sourceCollection = mongoose.connection.collection(lastCollectionName);
             lastMonthInventory = await sourceCollection.find({}).toArray();
-            lastMonthInventory.forEach(item => lastMonthInventoryMap.set(item.品號, item));
-        } catch (error) {
-            lastMonthInventory = [];
+        } else {
+            // 上個月沒有資料，套用 DEMO 模板，期初盤點設為 0
+            const demoCollection = mongoose.connection.collection(lastCollectionDemo);
+            lastMonthInventory = await demoCollection.find({}).toArray();
+            lastMonthInventory = lastMonthInventory.map(item => ({ ...item, 期初盤點: 0 }));
         }
+
+        lastMonthInventory.forEach(item => lastMonthInventoryMap.set(item.品號, item));
 
         // --- 處理資料 ---
         let productsNeedingSetup = [];
@@ -241,7 +248,6 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             const lastMonthProduct = lastMonthInventoryMap.get(apiProduct.品號);
 
             if (lastMonthProduct) {
-                // 繼承上月資料
                 currentProduct.規格 = lastMonthProduct.規格;
                 currentProduct.庫別 = lastMonthProduct.庫別;
                 currentProduct.廠商 = lastMonthProduct.廠商;
@@ -251,11 +257,10 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                 currentProduct.期末盤點 = '';
                 currentProduct.盤點日期 = today;
             } else {
-                // 新產品
                 currentProduct.庫別 = '待設定';
                 currentProduct.停用 = false;
                 currentProduct.盤點單位 = currentProduct.盤點單位 || '';
-                // 自動判斷廠商
+
                 if (currentProduct.品號?.includes('KO') || currentProduct.品號?.includes('KL')) {
                     currentProduct.廠商 = '王座(用)';
                 } else if (currentProduct.品名?.includes('半成品') || currentProduct.品名?.includes('全台')) {
@@ -263,6 +268,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
                 } else {
                     currentProduct.廠商 = '待設定';
                 }
+
                 productsNeedingSetup.push(currentProduct);
             }
 
@@ -274,13 +280,13 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
             await ProductTemp.insertMany(allProductsToInsertIntoTemp);
         }
 
-        // 檢查是否有需要前端設定的產品
+        // 回傳需前端設定的產品或自動更新正式庫存
         if (productsNeedingSetup.length > 0) {
             return res.json(productsNeedingSetup);
         } else {
             await Product.deleteMany({});
             await Product.insertMany(allProductsToInsertIntoTemp);
-            await ProductTemp.collection.drop();
+            try { await ProductTemp.collection.drop(); } catch (e) {}
             return res.status(201).json({ message: '所有產品已自動保存並更新正式庫存' });
         }
 
@@ -289,60 +295,85 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
         return res.status(500).json({ message: '建立盤點資料庫失敗', error: error.message });
     }
 });
-// API 端點：儲存補齊的新品
+
+// -----------------------------------------------------------
+// Save Completed Products Endpoint (confirm & commit new items)
+// -----------------------------------------------------------
 app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
-    const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
-    const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合品名
-    const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`; // 暫存集合
-    const Product = mongoose.model(collectionName, productSchema);
-    const ProductTemp = mongoose.model(collectionTmpName, productSchema); // 暫存集合模型
+    const storeName = req.params.storeName || 'notStart';
+    const collectionName = `${year}${formattedMonth}${storeName}`;
+    const collectionTmpName = `${year}${formattedMonth}${storeName}_tmp`;
+
+
+    const Product =
+        mongoose.models[collectionName] || mongoose.model(collectionName, productSchema);
+    const ProductTemp =
+        mongoose.models[collectionTmpName] || mongoose.model(collectionTmpName, productSchema);
+
+
     const message = '請將頁面重新整理以更新品項';
-    const inventoryItems = req.body; // 獲取請求中的數據
+    const inventoryItems = req.body; // Array of items to update 庫別/廠商/停用
+
 
     try {
-        // 驗證 inventoryItems 是否為陣列且不為空
         if (!Array.isArray(inventoryItems) || inventoryItems.length === 0) {
             return res.status(400).json({ message: '請求體中沒有有效的產品數據' });
         }
 
-        // 使用 Promise.all 並行處理每個項目的更新
-        const updateResults = await Promise.all(inventoryItems.map(item => {
-            if (!item.品號 || item.庫別 === undefined || item.廠商 === undefined) {
-                console.warn(`缺少必要欄位，跳過更新品號: ${item.品號}`);
-                return Promise.resolve({ matchedCount: 0, modifiedCount: 0 }); // 跳過並返回成功，避免 Promise.all 失敗
-            }
-            return ProductTemp.updateOne(
-                { 品號: item.品號 }, // 根據 '品號' 更新
-                { $set: { 庫別: item.庫別, 廠商: item.廠商, 停用: item.停用 } }
-            );
-        }));
 
-        // 檢查是否有任何更新失敗
-        const totalModified = updateResults.reduce((sum, result) => sum + result.modifiedCount, 0);
+        // Update temp entries with user-confirmed fields
+        const updateResults = await Promise.all(
+            inventoryItems.map((item) => {
+                if (!item || !item.品號 || item.庫別 === undefined || item.廠商 === undefined) {
+                    console.warn(`缺少必要欄位，跳過更新品號: ${item?.品號}`);
+                    return Promise.resolve({ matchedCount: 0, modifiedCount: 0 });
+                }
+                return ProductTemp.updateOne(
+                    { 品號: item.品號 },
+                    { $set: { 庫別: item.庫別, 廠商: item.廠商, 停用: !!item.停用 } }
+                );
+            })
+        );
+
+
+        const totalModified = updateResults.reduce((sum, r) => sum + (r.modifiedCount || 0), 0);
         console.log(`成功更新 ${totalModified} 個產品`);
 
-        const completedTmpProducts = await ProductTemp.find(); // 取得暫存區數據
-        const allProducts = [...completedTmpProducts];
 
-        // 根据商品编号进行排序
-        allProducts.sort((a, b) => a.品號.localeCompare(b.品號));
+        // Pull all temp docs, sort, then commit to main
+        const completedTmpProducts = await ProductTemp.find();
+        const allProducts = [...completedTmpProducts];
+        allProducts.sort((a, b) => String(a.品號).localeCompare(String(b.品號)));
+
 
         if (allProducts.length > 0) {
-            // 將所有產品資訊存入資料庫
+            // Replace/merge strategy: clear then insert to avoid duplicates
+            await Product.deleteMany({});
             await Product.insertMany(allProducts);
 
-            // 刪除整個暫存集合
-            await ProductTemp.collection.drop(); // 使用 drop() 方法刪除暫存集合
 
-            // io.to(storeName).emit('newAnnouncement', { message, storeName }); // 考慮是否需要發送通知
+            // Drop temp collection safely
+            try {
+                await ProductTemp.collection.drop();
+            } catch (err) {
+                if (err.code !== 26) throw err;
+            }
+
+
+            // Optionally emit to room via Socket.IO (if you maintain rooms by storeName)
+            // io.to(storeName).emit('newAnnouncement', { message, storeName });
+
+
             return res.status(201).json({ message: '所有新產品已成功保存並更新正式庫存' });
         } else {
-            return res.status(200).json({ message: '沒有需要保存的新產品' }); // 更精確的訊息和狀態碼
+            return res.status(200).json({ message: '沒有需要保存的新產品' });
         }
-
     } catch (error) {
         console.error('儲存產品時出錯:', error);
-        return res.status(500).json({ message: '儲存失敗', error: error.message });
+        return res.status(500).json({
+            message: '儲存失敗',
+            error: process.env.NODE_ENV === 'development' ? error.stack : error.message
+        });
     }
 });
 
@@ -702,27 +733,27 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
         // 檢查進貨上傳是否為 true
         if (updatedProduct.進貨上傳 === true) {
             // 計算本月用量
-            const monthlyUsage = 
-                updatedProduct.本月進貨 + 
-                updatedProduct.期初盤點 + 
-                updatedProduct.調入 - 
+            const monthlyUsage =
+                updatedProduct.本月進貨 +
+                updatedProduct.期初盤點 +
+                updatedProduct.調入 -
                 updatedProduct.期末盤點;
 
-           // 如果本月用量為負數，廣播警告訊息給前端
+            // 如果本月用量為負數，廣播警告訊息給前端
             const productName = updatedProduct.品名;
 
             if (monthlyUsage < 0) {
                 // 從更新後的產品中取得商品名稱
                 // 建立包含商品名稱的警告訊息
                 const alertMessage = `產品 ${productName} 的本月用量為負數，請檢查！`;
-                
+
                 // 廣播訊息，包含商品名稱
                 io.to(storeName).emit('negativeUsageAlert', {
                     type: error,
                     message: alertMessage,
                     productName: productName // 將 productCode 替換為 productName
                 });
-            }else if(monthlyUsage >300){
+            } else if (monthlyUsage > 300) {
                 const alertMessage = `產品 ${productName} 的本月用量過高，請檢查月末盤點量！`;
 
                 // 廣播訊息，包含商品名稱
