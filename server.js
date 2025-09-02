@@ -86,20 +86,18 @@ const productSchema = new mongoose.Schema({
     品名: { type: String, required: false },
     規格: { type: String, required: false },
     盤點單位: { type: String, required: false },
-    本月報價: { type: String, required: false },
+    本月報價: { type: Number, default: 0 },
     保存期限: { type: String, required: false },
     進貨單位: { type: String, required: false },
-    本月進貨: { type: Number, required: false },
-    期初盤點: { type: Number, required: false },
-    盤點量1: { type: Number, required: false },
-    盤點量2: { type: Number, required: false },
-    期末盤點: { type: Number, required: false },
-    調出: { type: Number, required: false },
-    調入: { type: Number, required: false },
-    本月使用量: { type: Number, required: false },
-    本月食材成本: { type: Number, required: false },
-    本月萬元用量: { type: Number, required: false },
-    週用量: { type: Number, required: false },
+    本月進貨: { type: Number, default: 0 },
+    期初盤點: { type: Number, default: 0 },
+    期末盤點: { type: Number, default: 0 },
+    調出: { type: Number, default: 0 },
+    調入: { type: Number, default: 0 },
+    本月使用量: { type: Number, default: 0 },
+    本月食材成本: { type: Number, default: 0 },
+    本月萬元用量: { type: Number, default: 0 },
+    週用量: { type: Number, default: 0 },
     盤點日期: { type: String, required: false },
     進貨上傳: { type: Boolean, default: false }, // 新增進貨上傳欄位
     盤點完成: { type: Boolean, default: false }, // 新增盤點完成欄位
@@ -165,7 +163,7 @@ app.get('/api/testInventoryTemplate/:storeName', (req, res) => {
     res.json(mockInventoryData);
 });
 
-
+// 開始盤點
 app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
     const storeName = req.params.storeName || 'notStart';
     try {
@@ -296,9 +294,7 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
     }
 });
 
-// -----------------------------------------------------------
-// Save Completed Products Endpoint (confirm & commit new items)
-// -----------------------------------------------------------
+// 保存已完成產品的 API 端點
 app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
     const storeName = req.params.storeName || 'notStart';
     const collectionName = `${year}${formattedMonth}${storeName}`;
@@ -377,7 +373,219 @@ app.post('/api/saveCompletedProducts/:storeName', limiter, async (req, res) => {
     }
 });
 
-// 新的 API 端點，處理上傳的 Excel 檔案
+// 抓取本月進貨量並更新資料庫
+app.post('/api/fetchMonthlyPurchase/:storeName', async (req, res) => {
+  const storeName = req.params.storeName;
+
+  try {
+    // 假設 year 和 formattedMonth 已在後端計算或可透過函數取得
+    const lastDay = new Date(year, formattedMonth, 0).getDate(); // 自動取當月最後一天
+
+    const startDate = `${year}-${String(formattedMonth).padStart(2, '0')}-01`;
+    const endDate = `${year}-${String(formattedMonth).padStart(2, '0')}-${lastDay}`;
+
+    // 抓取 Kingzaap API
+    const apiResponse = await axios.post(
+      "https://kingzaap.unium.com.tw/BohAPI/MSCPURX/GetAcceptanceMaterialsQuery",
+      {
+        Str_No: storeName,
+        Start_Time: startDate,
+        End_Time: endDate
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/plain, */*"
+        }
+      }
+    );
+
+    const data = apiResponse.data?.data || [];
+    if (!Array.isArray(data)) return res.status(500).json({ message: "API 回傳格式錯誤" });
+
+    // 將 Total_Qty 轉成 { 品號: 總數量 } 映射
+    const totalQtyMap = {};
+    data.forEach(item => {
+      const productCode = item.Goo_No?.trim();
+      if (!productCode) return;
+      totalQtyMap[productCode] = Number(item.Total_Qty || 0);
+    });
+
+    // 更新資料庫
+    const collectionName = `${year}${String(month).padStart(2, '0')}${storeName}`;
+    const Product = mongoose.model(collectionName, productSchema);
+
+    const bulkOps = [];
+    for (const [productCode, qty] of Object.entries(totalQtyMap)) {
+        const roundedQty = parseFloat(qty.toFixed(2));
+      bulkOps.push({
+        updateOne: {
+          filter: { 品號: productCode },
+          update: { $set: { 本月進貨: roundedQty , 進貨上傳: true } }
+
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await Product.bulkWrite(bulkOps);
+      return res.json({ message: `成功更新 ${bulkOps.length} 筆本月進貨資料` });
+    } else {
+      return res.json({ message: "無資料需要更新" });
+    }
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "抓取或更新本月進貨失敗", error: err.message });
+  }
+});
+
+// 抓取調入資料並更新資料庫
+app.post('/api/fetchCallUpData/:storeName', async (req, res) => {
+  const storeName = req.params.storeName;
+
+  try {
+    // 後端計算特殊系統年月
+    const lastDay = new Date(year, formattedMonth, 0).getDate(); // 自動取當月最後一天
+
+    const startDate = `${year}-${String(formattedMonth).padStart(2, '0')}-01`;
+    const endDate = `${year}-${String(formattedMonth).padStart(2, '0')}-${lastDay}`;
+
+    // 抓取 Kingzaap 調入資料
+    const apiResponse = await axios.post(
+      "https://kingzaap.unium.com.tw/BohAPI/MSCTTOMI/FindCallUpData",
+      {
+        Des_StrNo: storeName,
+        StartTime: startDate,
+        EndTime: endDate
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/plain, */*"
+        }
+      }
+    );
+
+    const data = apiResponse.data?.data || [];
+    if (!Array.isArray(data)) return res.status(500).json({ message: "API 回傳格式錯誤" });
+
+    // 生成品號 -> 調入數量映射
+    const callUpMap = {};
+    data.forEach(item => {
+      const productCode = item.Goo_No?.trim();
+      if (!productCode) return;
+
+      // 累加同一品號的數量
+      if (callUpMap[productCode]) {
+        callUpMap[productCode] += Number(item.Qty || 0);
+      } else {
+        callUpMap[productCode] = Number(item.Qty || 0);
+      }
+    });
+
+    // 更新 MongoDB
+    const collectionName = `${year}${String(month).padStart(2, '0')}${storeName}`;
+    const Product = mongoose.model(collectionName, productSchema);
+
+    const bulkOps = [];
+    for (const [productCode, qty] of Object.entries(callUpMap)) {
+        const roundedFinalQty = parseFloat(qty.toFixed(2));
+      bulkOps.push({
+        updateOne: {
+          filter: { 品號: productCode },
+          update: { $set: { 調入: roundedFinalQty } }
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await Product.bulkWrite(bulkOps);
+      return res.json({ message: `成功更新 ${bulkOps.length} 筆調入資料` });
+    } else {
+      return res.json({ message: "無調入資料需要更新" });
+    }
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "抓取或更新調入資料失敗", error: err.message });
+  }
+});
+
+app.post('/api/fetchCallOutData/:storeName', async (req, res) => {
+  const storeName = req.params.storeName;
+
+  try {
+    // 後端計算特殊系統年月
+    const lastDay = new Date(year, formattedMonth, 0).getDate();
+
+    const startDate = `${year}-${String(formattedMonth).padStart(2, '0')}-01`;
+    const endDate = `${year}-${String(formattedMonth).padStart(2, '0')}-${lastDay}`;
+
+    // 抓取 Kingzaap 調出資料
+    const apiResponse = await axios.post(
+      "https://kingzaap.unium.com.tw/BohAPI/MSCTTOMI/FindCallUpData",
+      {
+        Str_No: storeName, // 調出使用 Str_No
+        StartTime: startDate,
+        EndTime: endDate
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json, text/plain, */*"
+        }
+      }
+    );
+
+    const data = apiResponse.data?.data || [];
+    if (!Array.isArray(data)) return res.status(500).json({ message: "API 回傳格式錯誤" });
+
+    // 生成品號 -> 調出數量映射
+    const callOutMap = {};
+    data.forEach(item => {
+      const productCode = item.Goo_No?.trim();
+      if (!productCode) return;
+
+      // 累加同一品號的數量
+      if (callOutMap[productCode]) {
+        callOutMap[productCode] += Number(item.Qty || 0);
+      } else {
+        callOutMap[productCode] = Number(item.Qty || 0);
+      }
+    });
+
+    // 更新 MongoDB
+    const collectionName = `${year}${String(month).padStart(2, '0')}${storeName}`;
+    const Product = mongoose.model(collectionName, productSchema);
+
+    const bulkOps = [];
+    for (const [productCode, qty] of Object.entries(callOutMap)) {
+    const roundedFinalQty = parseFloat(qty.toFixed(2));
+
+      bulkOps.push({
+        updateOne: {
+          filter: { 品號: productCode },
+          update: { $set: { 調出: roundedFinalQty } }
+        }
+      });
+    }
+
+    if (bulkOps.length > 0) {
+      await Product.bulkWrite(bulkOps);
+      return res.json({ message: `成功更新 ${bulkOps.length} 筆調出資料` });
+    } else {
+      return res.json({ message: "無調出資料需要更新" });
+    }
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "抓取或更新調出資料失敗", error: err.message });
+  }
+});
+
+
+// 新的 API 端點，處理上傳的進銷存 Excel 檔案
 app.post('/api/uploadInventory/:storeName', upload.single('inventoryFile'), async (req, res) => {
     console.log('接收的請求:', req.body); // 打印請求體
     console.log('請求文件:', req.file); // 打印上傳的文件
@@ -462,7 +670,6 @@ app.post('/api/uploadInventory/:storeName', upload.single('inventoryFile'), asyn
 
 
 // 新的 API 端點，處理上傳的本月進貨量 Excel 檔案
-
 app.post('/api/uploadMonthlyPurchase/:storeName', upload.single('monthlyPurchaseFile'), async (req, res) => {
     const storeName = req.params.storeName;
     const collectionName = `${year}${formattedMonth}${storeName}`;
@@ -475,7 +682,7 @@ app.post('/api/uploadMonthlyPurchase/:storeName', upload.single('monthlyPurchase
 
     try {
         console.log('開始解析Excel檔案...');
-        // 讀取Excel
+        // 讀取 Excel
         const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
         const sheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[sheetName];
@@ -487,134 +694,80 @@ app.post('/api/uploadMonthlyPurchase/:storeName', upload.single('monthlyPurchase
             return res.status(400).json({ message: 'Excel 檔案格式不正確，缺少資料' });
         }
 
-        // 定義清單
-        const vendorPrefixList = ['全台', '央廚', '王座', '富育', '開元', '裕賀', '美食', '點線'];
-        console.log('供應商前兩個字清單：', vendorPrefixList);
+        // 清空本月進貨
+        await Product.updateMany({}, { $set: { 本月進貨: 0, 進貨上傳: false } });
 
-        await Product.updateMany({}, { $set: { 本月進貨: 0 } });
-        await Product.updateMany({}, { $set: { 調入: 0 } });
+        const bulkOps = [];
 
-        const matchingMap = new Map(); // 符合清單
-        const nonMatchingMap = new Map(); // 不符合清單
-
-        // 逐行解析
+        // 第一行是標題，從第2行開始
         for (let i = 1; i < jsonData.length; i++) {
             const row = jsonData[i];
-            const vendorName = row[0] || '';
-            const productCode = (row[2] || '').toString().trim();
-            const purchaseQty = parseFloat(row[9]) || 0;
+
+            const productCode = (row[1] || '').toString().trim(); // 商品代號在第2欄
+            const totalQty = parseFloat(row[10]) || 0;            // 總數量在第11欄
 
             if (!productCode) continue;
 
-            const prefix = vendorName.substring(0, 2);
-            const isInList = vendorPrefixList.includes(prefix);
+            console.log(`第 ${i + 1} 行：商品代號=${productCode}, 總數量=${totalQty}`);
 
-            console.log(`第 ${i + 1} 行：供應商="${vendorName}"，前綴="${prefix}"，在清單內=${isInList}，商品="${productCode}"，進貨數=${purchaseQty}`);
-
-
-
-            if (isInList) {
-                // 覆蓋最新值
-                matchingMap.set(productCode, purchaseQty);
-            } else {
-                // 累計
-                if (nonMatchingMap.has(productCode)) {
-                    nonMatchingMap.set(productCode, nonMatchingMap.get(productCode) + purchaseQty);
-                } else {
-                    nonMatchingMap.set(productCode, purchaseQty);
-                }
-            }
-        }
-        console.log('符合清單的品項：', Array.from(matchingMap.entries()));
-        console.log('不符合清單累計品項：', Array.from(nonMatchingMap.entries()));
-
-        // 準備批次操作
-        const bulkOps1 = [];
-        const bulkOps2 = [];
-
-        // 更新符合清單（覆蓋）
-        // 假設 qty 可能是字串或數字
-        for (const [productCode, qty] of matchingMap.entries()) {
-            const convertQty = isNaN(qty) || qty === '' ? 0 : parseFloat(qty);
-            console.log(`符合清單：商品${productCode}，設定進貨數=${convertQty}`);
-
-            bulkOps1.push({
+            bulkOps.push({
                 updateOne: {
                     filter: { 品號: productCode },
-                    update: { $set: { 本月進貨: convertQty } },
-                    upsert: true
+                    update: { $set: { 本月進貨: totalQty, 進貨上傳: true } }
                 }
             });
         }
 
-        for (const [productCode, qty] of nonMatchingMap.entries()) {
-            const convertQty = isNaN(qty) || qty === '' ? 0 : parseFloat(qty);
-            console.log(`不符合清單：商品${productCode}，累加進貨數=${convertQty}到 '調入'`);
+        if (bulkOps.length > 0) {
+            const result = await Product.bulkWrite(bulkOps);
+            console.log('批次更新完成：', result);
 
-            bulkOps2.push({
-                updateOne: {
-                    filter: { 品號: productCode },
-                    update: { $set: { 調入: convertQty } },
-                    upsert: true
-                }
+            // 廣播更新
+            io.emit('monthlyPurchaseUpdated', { storeName });
+
+            return res.status(200).json({
+                message: `成功更新 ${bulkOps.length} 筆資料`,
+                updated: bulkOps.length
             });
-        }
-
-        // 執行批次
-        if (bulkOps1.length > 0) {
-            const result = await Product.bulkWrite(bulkOps1);
-            console.log(`批次更新完成：`, result);
-        }
-
-        if (bulkOps2.length > 0) {
-            const result = await Product.bulkWrite(bulkOps2);
-            console.log(`批次更新完成：`, result);
-        }
-        if (bulkOps1.length > 0 || bulkOps2.length > 0) {
-            const result = await Product.updateMany({}, { $set: { 進貨上傳: true } });
-            console.log('更新結果：', result);
-            res.status(200).json({ message: `成功更新進貨 ${bulkOps1.length} 筆資料\n成功更新調入 ${bulkOps2.length} 筆資料` });
-        }
-        if (bulkOps1.length === 0 && bulkOps2.length === 0) {
+        } else {
             console.log('沒有資料需要更新');
-            res.status(200).json({ message: '無資料需要更新' });
+            return res.status(200).json({ message: '無資料需要更新' });
         }
     } catch (error) {
-        console.error('處理本月進貨量 XML 檔案時發生錯誤:', error);
+        console.error('處理本月進貨量 Excel 檔案時發生錯誤:', error);
         res.status(500).json({ message: '處理檔案時發生錯誤', error: error.message });
     }
 });
+// 新的 API 端點，查詢本月使用量為負值的品項
 app.get('/api/negativeUsageItems/:storeName', async (req, res) => {
     const storeName = req.params.storeName;
     const collectionName = `${year}${formattedMonth}${storeName}`;
     const Product = mongoose.model(collectionName, productSchema);
 
     try {
-        const items = await Product.find({
-            $expr: {
-                $lt: [
-                    {
-                        $subtract: [
-                            { $add: ["$本月進貨", "$期初盤點", "$調入"] },
-                            "$期末盤點"
-                        ]
-                    },
-                    0
-                ]
-            }
-        });
+        const items = await Product.find({ 停用: false });
 
-        // 只返回品名和計算值
-        const result = items.map(item => ({
-            品號: item.品號,
-            品名: item.品名,
-            本月進貨: item.本月進貨,
-            期初盤點: item.期初盤點,
-            期末盤點: item.期末盤點,
-            調入: item.調入,
-            本月使用量: item.本月進貨 + item.期初盤點 + item.調入 - item.期末盤點
+        // 計算使用量並過濾負值
+        const result = items
+            .map(item => {
+                const 本月使用量 = (item.本月進貨 || 0)
+                    + (item.期初盤點 || 0)
+                    + (item.調入 || 0)
+                    - (item.期末盤點 || 0)
+                    - (item.調出 || 0);
 
-        }));
+                return {
+                    品號: item.品號,
+                    品名: item.品名,
+                    本月進貨: item.本月進貨 || 0,
+                    期初盤點: item.期初盤點 || 0,
+                    期末盤點: item.期末盤點 || 0,
+                    調入: item.調入 || 0,
+                    調出: item.調出 || 0,
+                    本月使用量
+                };
+            })
+            .filter(item => item.本月使用量 < 0);
 
         res.json(result);
     } catch (err) {
@@ -622,6 +775,7 @@ app.get('/api/negativeUsageItems/:storeName', async (req, res) => {
         res.status(500).json({ message: '查詢失敗', error: err.message });
     }
 });
+
 
 // API端點: 檢查伺服器內部狀況
 app.get('/api/checkConnections', (req, res) => {
@@ -737,6 +891,7 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
                 updatedProduct.本月進貨 +
                 updatedProduct.期初盤點 +
                 updatedProduct.調入 -
+                updatedProduct.調出 -
                 updatedProduct.期末盤點;
 
             // 如果本月用量為負數，廣播警告訊息給前端
@@ -773,8 +928,44 @@ app.put('/api/products/:storeName/:productCode/quantity', limiter, async (req, r
         res.status(400).send('更新失敗');
     }
 });
+
+app.post('/api/markNotInventoried/:storeName', limiter, async (req, res) => {
+    const storeName = req.params.storeName;
+    const { productIds } = req.body; // 接收品號陣列
+
+    if (!storeName || !Array.isArray(productIds) || productIds.length === 0) {
+        return res.status(400).json({ message: '缺少 storeName 或 productIds' });
+    }
+
+    const collectionName = `${year}${formattedMonth}${storeName}`; // 正式盤點集合
+    const Product = mongoose.model(collectionName, productSchema);
+
+    try {
+        const updateResult = await Product.updateMany(
+            { 品號: { $in: productIds } },
+            { $set: { 盤點完成: false } }
+        );
+
+        // 成功後透過 Socket.IO 廣播給該門市所有連線
+        if (global.io) {
+            io.to(storeName).emit('updateInventoryStatus', {
+                productIds,
+                status: false
+            });
+        }
+
+        return res.status(200).json({
+            message: '盤點狀態已更新為未盤點',
+            modifiedCount: updateResult.modifiedCount
+        });
+    } catch (error) {
+        console.error('更新盤點狀態失敗:', error);
+        return res.status(500).json({ message: '更新盤點狀態失敗', error: error.message });
+    }
+});
+
 // 更新產品停用的 API 端點
-app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res) => {
+app.put('/api/products/:storeName/:productCode/depot', async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合品名
     const Product = mongoose.model(collectionName, productSchema);
@@ -811,7 +1002,7 @@ app.put('/api/products/:storeName/:productCode/depot', limiter, async (req, res)
 });
 
 // 更新產品保存期限的 API 端點
-app.put('/api/products/:storeName/:productCode/expiryDate', limiter, async (req, res) => {
+app.put('/api/products/:storeName/:productCode/expiryDate', async (req, res) => {
     const storeName = req.params.storeName || 'notStart'; // 取得 URL 中的 storeName
     const collectionName = `${year}${formattedMonth}${storeName}`; // 根據年份、月份和門市產生集合品名
     const Product = mongoose.model(collectionName, productSchema);
