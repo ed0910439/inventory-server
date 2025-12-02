@@ -1428,8 +1428,10 @@ app.get('/api/negativeUsageItems/:storeName', async (req, res) => {
                     本月進貨: item.本月進貨 || 0,
                     期初盤點: item.期初盤點 || 0,
                     期末盤點: item.期末盤點 || 0,
+                    盤點單位: item.盤點單位 || '',
                     調入: item.調入 || 0,
                     調出: item.調出 || 0,
+                    盤點完成: item.盤點完成 || false,
                     本月使用量
                 };
             })
