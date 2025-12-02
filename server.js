@@ -520,7 +520,7 @@ app.post('/api/export-master-sheet/:storeName', upload.single('excelFile'), asyn
         const apiHeaders = {
             "accept": "application/json, text/plain, */*",
             "content-type": "application/json",
-            "Referer": process.env.CLIENT_HOST
+            "Referer": process.env.API_PRODUCTANALYSIS_URL
         };
 
         const apiResponse = await axios.post(apiUrl, apiBody, { headers: apiHeaders });
