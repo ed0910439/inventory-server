@@ -192,8 +192,8 @@ app.get('/api/startInventory/:storeName', limiter, async (req, res) => {
         await mongoose.connection.collection(collectionTmpName).deleteMany({});
 
         // --- 從新 API 抓取數據 ---
-        const apiUrl = "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/FindInventoryData";
-        const payload = { Str_No: storeName === 'dc03021test' ? 'dc03021' : storeName, Tdate: tdate, BrandNo: "004" };
+        const apiUrl = process.env.API_FINDINVENTORYDATA_URL;
+        const payload = { Str_No: storeName === 'dc03021test' ? 'dc03021' : storeName, Tdate: tdate, BrandNo: process.env.BRAND_NO };
         console.log(payload);
         const response = await fetch(apiUrl, {
             method: 'POST',
@@ -432,9 +432,9 @@ app.get('/api/syncInventoryData/:storeName', limiter, async (req, res) => {
         });
 
         // 2. 呼叫外部 API
-        const apiUrl = "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/FindInventoryData";
+        const apiUrl = process.env.API_FindInventoryData_URL;
         const apiStrNo = storeName === 'dc03021test' ? 'dc03021' : storeName;
-        const payload = { Str_No: apiStrNo, Tdate: currentTdate, BrandNo: "004" };
+        const payload = { Str_No: apiStrNo, Tdate: currentTdate, BrandNo: process.env.BRAND_NO };
 
         const response = await axios.post(apiUrl, payload, {
             headers: { 'Content-Type': 'application/json' }
@@ -509,7 +509,7 @@ app.post('/api/export-master-sheet/:storeName', upload.single('excelFile'), asyn
 
     // 2.2 🚨 呼叫外部 API 取得銷售數據
     try {
-        const apiUrl = "https://kingzaap.unium.com.tw/SettingApi/KzSale/getGooForExcel";
+        const apiUrl = process.env.API_GETGOOFOREXCEL_URL;
         const apiBody = {
             kind: "M",
             Str_No: storeName,
@@ -520,7 +520,7 @@ app.post('/api/export-master-sheet/:storeName', upload.single('excelFile'), asyn
         const apiHeaders = {
             "accept": "application/json, text/plain, */*",
             "content-type": "application/json",
-            "Referer": "https://kingzaap.unium.com.tw/BackWeb/Report/ProductAnalysis"
+            "Referer": process.env.CLIENT_HOST
         };
 
         const apiResponse = await axios.post(apiUrl, apiBody, { headers: apiHeaders });
@@ -917,8 +917,8 @@ app.post('/api/upload-inventory/:storeName', (req, res) => {
             const localProducts = await Product.find({});
 
             // 取得 API 資料
-            const apiUrl = "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/FindInventoryData";
-            const payload = { Str_No: storeName, Tdate: tdate, BrandNo: "004" };
+            const apiUrl = process.env.API_FINDINVENTORYDATA_URL;
+            const payload = { Str_No: storeName, Tdate: tdate, BrandNo: process.env.BRAND_NO };
             const response = await axios.post(apiUrl, payload, {
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -941,7 +941,7 @@ app.post('/api/upload-inventory/:storeName', (req, res) => {
 
             // 一次性上傳到 UpsertInventoryData
             await axios.post(
-                "https://kingzaap.unium.com.tw/BohAPI/MSCINKX/UpsertInventoryData",
+                process.env.API_UPSERTINVENTORYDATA_URL,
                 updatedData,
                 { headers: { 'Content-Type': 'application/json' } }
             );
@@ -1000,7 +1000,7 @@ app.post('/api/fetchMonthlyPurchase/:storeName', async (req, res) => {
 
         // 抓取 Kingzaap API
         const apiResponse = await axios.post(
-            "https://kingzaap.unium.com.tw/BohAPI/MSCPURX/GetAcceptanceMaterialsQuery",
+            process.env.API_GETACCEPTANCEMATERIALSQUERY_URL,
             {
                 Str_No: storeName,
                 Start_Time: startDate,
@@ -1067,7 +1067,7 @@ app.post('/api/fetchCallUpData/:storeName', async (req, res) => {
 
         // 抓取 Kingzaap 調入資料
         const apiResponse = await axios.post(
-            "https://kingzaap.unium.com.tw/BohAPI/MSCTTOMI/FindCallUpData",
+            process.env.API_FINDCALLUPDATA_URL,
             {
                 Des_StrNo: storeName,
                 StartTime: startDate,
@@ -1139,7 +1139,7 @@ app.post('/api/fetchCallOutData/:storeName', async (req, res) => {
 
         // 抓取 Kingzaap 調出資料
         const apiResponse = await axios.post(
-            "https://kingzaap.unium.com.tw/BohAPI/MSCTTOMI/FindCallUpData",
+            process.env.API_FINDCALLUPDATA_URL,
             {
                 Str_No: storeName, // 調出使用 Str_No
                 StartTime: startDate,
